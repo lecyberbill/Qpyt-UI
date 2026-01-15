@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" class="sl-theme-dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qpyt-UI Framework</title>
+
+    <!-- Shoelace Theme & Assets -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/themes/dark.css" />
+    <script type="module"
+        src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/shoelace-autoloader.js"></script>
+
+    <script type="module">
+        import { setBasePath } from 'https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/utilities/base-path.js';
+        setBasePath('https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/');
+    </script>
+
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --bg-color: #020617;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            padding: 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin: 0;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+
+        .workflow-area {
+            display: flex;
+            padding: 2rem;
+            gap: 1rem;
+            overflow-x: auto;
+            align-items: flex-start;
+            flex-grow: 1;
+            scrollbar-width: thin;
+            scrollbar-color: #334155 transparent;
+        }
+
+        .workflow-area::-webkit-scrollbar {
+            height: 6px;
+        }
+
+        .workflow-area::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+
+        #autoloader-trigger {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1 id="app-title">Qpyt-UI</h1>
+        <div style="color: #64748b; font-size: 0.9rem;">Python-Driven Modular Interface</div>
+    </header>
+
+    <div class="workflow-area" id="main-workflow">
+        <!-- Dynamically filled by Python via app.js -->
+    </div>
+
+    <!-- Global Configuration Interface -->
+    <sl-button id="workflow-trigger" circle size="large" title="Workflows & Presets"
+        style="position: fixed; bottom: 30px; left: 95px; z-index: 9999;">
+        <sl-icon name="save"></sl-icon>
+    </sl-button>
+
+    <sl-button id="settings-trigger" circle size="large" title="Settings"
+        style="position: fixed; bottom: 30px; left: 160px; z-index: 9999;">
+        <sl-icon name="gear"></sl-icon>
+    </sl-button>
+
+    <!-- Drawer: Workflow Manager -->
+    <sl-drawer id="workflow-drawer" label="Workflow Manager" style="--size: 400px;">
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <p style="color: #64748b; font-size: 0.9rem; margin-top: 0;">Save your current brick layout as a workflow.
+            </p>
+
+            <div
+                style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                <sl-input id="wf-save-name" placeholder="Workflow name (e.g. My Anime Style)"></sl-input>
+                <sl-button id="wf-save-btn" variant="primary" style="width: 100%; margin-top: 0.8rem;">
+                    <sl-icon slot="prefix" name="download"></sl-icon>
+                    Save Workflow
+                </sl-button>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
+                <h3 style="font-size: 1rem; margin-top: 0;">Saved Workflows</h3>
+                <div id="workflow-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <p style="color: #475569; font-style: italic; font-size: 0.8rem;">Loading...</p>
+                </div>
+            </div>
+        </div>
+        <sl-button slot="footer" variant="neutral" id="wf-close-btn">Close</sl-button>
+    </sl-drawer>
+
+    <sl-drawer id="settings-drawer" label="Qpyt-UI Configuration" style="--size: 400px;">
+        <div id="settings-form" style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <p style="color: #64748b; font-size: 0.9rem; margin-top: 0;">Modify global application settings.
+                Changes will be saved to <code>config.local.json</code>.</p>
+
+            <sl-input id="cfg-models-dir" label="Models Folder (Checkpoints)"></sl-input>
+            <sl-input id="cfg-flux-models-dir" label="FLUX Models Folder"></sl-input>
+            <sl-input id="cfg-loras-dir" label="LoRAs Folder"></sl-input>
+            <sl-input id="cfg-output-dir" label="Outputs Folder (Images)"></sl-input>
+            <sl-input id="cfg-default-model" label="Default Model (.safetensors)"></sl-input>
+
+            <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                <sl-button id="cfg-save-btn" variant="primary" style="flex: 1;">Save</sl-button>
+                <sl-button id="cfg-close-btn" outline>Cancel</sl-button>
+            </div>
+        </div>
+    </sl-drawer>
+
+    <!-- Forçage de l'autoloader -->
+    <div id="autoloader-trigger">
+        <sl-drawer></sl-drawer><sl-button></sl-button><sl-icon></sl-icon>
+        <sl-textarea></sl-textarea><sl-input></sl-input><sl-spinner></sl-spinner>
+        <sl-dialog></sl-dialog><sl-alert></sl-alert>
+        <sl-select></sl-select><sl-option></sl-option>
+    </div>
+
+    <qp-dashboard></qp-dashboard>
+    <qp-library></qp-library>
+
+    <!-- Framework Scripts -->
+    <script type="module" src="/static/components/qp-cartridge.js?v=10"></script>
+    <script type="module" src="/static/components/qp-bricks.js?v=10"></script>
+    <script type="module" src="/static/components/qp-dashboard.js?v=10"></script>
+    <script type="module" src="/static/components/qp-library.js?v=10"></script>
+    <script type="module" src="/static/app.js?v=10"></script>
+</body>
+
+</html>

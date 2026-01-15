@@ -1,0 +1,293 @@
+class QpytApp {
+    constructor() {
+        this.workflow = document.getElementById('main-workflow');
+        this.titleEl = document.getElementById('app-title');
+        this.lastImage = null; // Global track for last generated image (URL)
+    }
+
+    async init() {
+        try {
+            const response = await fetch('/config');
+            const config = await response.json();
+
+            // Store current workflow and settings
+            this.currentWorkflow = config.workflow;
+            this.settings = config.settings || {};
+
+            // Set dynamic title
+            if (this.titleEl && config.title) {
+                this.titleEl.textContent = config.title;
+            }
+
+            // Mount workflow bricks
+            this.mountWorkflow(config.workflow);
+
+            // Setup Settings Drawer
+            this.setupSettings();
+
+            // Setup Workflow Manager
+            this.setupWorkflows();
+
+            console.log("Qpyt-UI initialized with config:", config);
+        } catch (e) {
+            console.error("Qpyt-UI failed to initialize:", e);
+        }
+    }
+
+    setupWorkflows() {
+        const trigger = document.getElementById('workflow-trigger');
+        const drawer = document.getElementById('workflow-drawer');
+        const saveBtn = document.getElementById('wf-save-btn');
+        const nameInput = document.getElementById('wf-save-name');
+        const listContainer = document.getElementById('workflow-list');
+        const closeBtn = document.getElementById('wf-close-btn');
+
+        if (!trigger || !drawer) return;
+
+        trigger.addEventListener('click', () => {
+            this.fetchWorkflows();
+            drawer.show();
+        });
+
+        closeBtn?.addEventListener('click', () => drawer.hide());
+
+        saveBtn?.addEventListener('click', async () => {
+            const name = nameInput.value.trim();
+            if (!name) {
+                this.notify("Please enter a workflow name", "danger");
+                return;
+            }
+
+            try {
+                saveBtn.loading = true;
+                const response = await fetch('/workflows/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    this.notify(result.message, "success");
+                    nameInput.value = '';
+                    this.fetchWorkflows();
+                } else {
+                    this.notify(result.message, "danger");
+                }
+            } catch (e) {
+                this.notify("Saving failed", "danger");
+            } finally {
+                saveBtn.loading = false;
+            }
+        });
+    }
+
+    async fetchWorkflows() {
+        const listContainer = document.getElementById('workflow-list');
+        if (!listContainer) return;
+
+        try {
+            const response = await fetch('/workflows');
+            const list = await response.json();
+
+            if (list.length === 0) {
+                listContainer.innerHTML = '<p style="color: #475569; font-style: italic; font-size: 0.8rem;">No workflows saved yet.</p>';
+                return;
+            }
+
+            listContainer.innerHTML = list.map(name => `
+                <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                    <sl-icon name="journal-bookmark" style="color: #6366f1;"></sl-icon>
+                    <span style="flex: 1; font-size: 0.9rem;">${name}</span>
+                    <sl-button size="small" variant="neutral" onclick="window.qpyt_app.loadWorkflow('${name}')">Load</sl-button>
+                </div>
+            `).join('');
+        } catch (e) {
+            listContainer.innerHTML = '<p style="color: #ef4444;">Failed to load list.</p>';
+        }
+    }
+
+    async loadWorkflow(name) {
+        try {
+            const response = await fetch('/workflows/load', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.mountWorkflow(result.workflow);
+                this.notify(`Workflow '${name}' loaded.`, "success");
+                document.getElementById('workflow-drawer').hide();
+            } else {
+                this.notify(result.message, "danger");
+            }
+        } catch (e) {
+            this.notify("Loading failed", "danger");
+        }
+    }
+
+    setupSettings() {
+        const trigger = document.getElementById('settings-trigger');
+        const drawer = document.getElementById('settings-drawer');
+        const saveBtn = document.getElementById('cfg-save-btn');
+        const closeBtn = document.getElementById('cfg-close-btn');
+
+        if (!trigger || !drawer) return;
+
+        // Populate fields
+        const fields = {
+            'cfg-models-dir': this.settings.MODELS_DIR,
+            'cfg-flux-models-dir': this.settings.FLUX_MODELS_DIR,
+            'cfg-loras-dir': this.settings.LORAS_DIR,
+            'cfg-output-dir': this.settings.OUTPUT_DIR,
+            'cfg-default-model': this.settings.DEFAULT_MODEL
+        };
+
+        Object.entries(fields).forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el) el.value = value || '';
+        });
+
+        trigger.addEventListener('click', () => drawer.show());
+        closeBtn?.addEventListener('click', () => drawer.hide());
+
+        saveBtn?.addEventListener('click', async () => {
+            const newData = {
+                ...this.settings,
+                MODELS_DIR: document.getElementById('cfg-models-dir').value,
+                FLUX_MODELS_DIR: document.getElementById('cfg-flux-models-dir').value,
+                LORAS_DIR: document.getElementById('cfg-loras-dir').value,
+                OUTPUT_DIR: document.getElementById('cfg-output-dir').value,
+                DEFAULT_MODEL: document.getElementById('cfg-default-model').value
+            };
+
+            try {
+                saveBtn.loading = true;
+                const response = await fetch('/config/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newData)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    this.notify("Configuration saved!", "success");
+                    this.settings = newData;
+                    drawer.hide();
+                    // Optional: refresh page or re-init if paths changed drastically
+                } else {
+                    this.notify(`Error: ${result.message}`, "danger");
+                }
+            } catch (e) {
+                this.notify("Save error", "danger");
+            } finally {
+                saveBtn.loading = false;
+            }
+        });
+    }
+
+    async addBrick(type) {
+        try {
+            console.log(`Adding brick: ${type}`);
+            const response = await fetch('/brick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type })
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.mountWorkflow(result.workflow);
+                this.notify("Module added successfully", "success");
+            } else {
+                this.notify(`Error: ${result.message}`, "danger");
+            }
+        } catch (e) {
+            console.error("Failed to add brick:", e);
+            this.notify("Error while adding module", "danger");
+        }
+    }
+
+    async removeBrick(brickId) {
+        try {
+            console.log(`Removing brick: ${brickId}`);
+            const response = await fetch(`/brick/${brickId}`, {
+                method: 'DELETE'
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.mountWorkflow(result.workflow);
+                this.notify("Module removed", "primary");
+            } else {
+                this.notify(`Error: ${result.message}`, "danger");
+            }
+        } catch (e) {
+            console.error("Failed to remove brick:", e);
+            this.notify("Error while removing module", "danger");
+        }
+    }
+
+    mountWorkflow(bricks) {
+        if (!this.workflow) return;
+        console.log("[Workflow] Mounting bricks via innerHTML:", bricks);
+
+        try {
+            // Build the collective HTML string first to avoid DOMException on createElement
+            let html = bricks.map(brick => {
+                if (!brick.type) return '';
+                // We pass props as attributes for initial sync if possible
+                let propsAttr = "";
+                if (brick.props) {
+                    // Only serializable props like modelType can be passed as attr easily
+                }
+                return `<${brick.type} brick-id="${brick.id}"></${brick.type}>`;
+            }).join('');
+
+            this.workflow.innerHTML = html;
+
+            // Second pass: Assign props to elements now that they exist in DOM
+            bricks.forEach(brick => {
+                if (!brick.type) return;
+                const el = this.workflow.querySelector(`[brick-id="${brick.id}"]`);
+                if (el) {
+                    // Set props
+                    if (brick.props) {
+                        Object.assign(el, brick.props);
+                    }
+                    // We REMOVED the explicit el.render() here because connectedCallback handles it once
+                }
+            });
+        } catch (err) {
+            console.error("[Workflow] Critical error during string-based mount:", err);
+            this.workflow.innerHTML = `<div style="padding: 2rem; color: #ef4444;">Workflow Error: ${err.message}</div>`;
+        }
+    }
+
+    notify(message, variant = 'primary', icon = 'info-circle', duration = 3000) {
+        console.log(`[Notification] ${variant}: ${message}`);
+        const toast = document.createElement('div');
+        const color = variant === 'success' ? '#10b981' : (variant === 'danger' ? '#ef4444' : '#6366f1');
+
+        toast.style.cssText = `
+            position: fixed; top: 20px; right: 20px; 
+            background: #1e293b; color: white; 
+            padding: 1rem 1.5rem; border-radius: 0.5rem;
+            border-left: 4px solid ${color};
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            z-index: 10000; font-weight: 600;
+            display: flex; align-items: center; gap: 0.5rem;
+            transition: opacity 0.3s;
+        `;
+        toast.innerHTML = `<span>${message}</span>`;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+}
+
+// Start the app immediately and expose to window
+window.addEventListener('DOMContentLoaded', () => {
+    window.qpyt_app = new QpytApp();
+    window.qpyt_app.init();
+});

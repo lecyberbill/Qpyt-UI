@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+
+# Local configuration
+config.local.json
+.env
+
+# Project specific
+models/
+outputs/
+logs/
+workflows/*.json
+
+# Media/OS
+.DS_Store
+Thumbs.db
+
+# Gemini/Agentic temp
+.gemini/
+.antigravity/
