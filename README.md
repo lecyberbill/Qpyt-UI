@@ -3,7 +3,8 @@
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
 
-![Qpyt-UI Interface](https://github.com/user-attachments/assets/2b50c7b9-c587-4594-86f9-0eeb4b2bfff2)
+<img width="1899" height="872" alt="image" src="https://github.com/user-attachments/assets/e2c45ffb-9edf-4260-b5a5-6c078fca209a" />
+
 
 ## Overview
 Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance interaction with Stable Diffusion (SDXL, FLUX, SD3.5) and auxiliary AI models. It uses a unique "Brick" system where every UI component is a standalone Web Component powered by a dedicated Python backend service.
