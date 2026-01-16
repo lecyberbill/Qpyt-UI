@@ -272,7 +272,7 @@ class QpSettings extends HTMLElement {
             <qp-cartridge title="Settings" type="setting" brick-id="${brickId}">
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                     
-                    <sl-select id="format-select" label="Image Dimensions" value="${this.selectedDimension}" hoist @sl-change="${e => this.handleFormatChange(e)}">
+                    <sl-select id="format-select" label="Image Dimensions" value="${this.selectedDimension}" hoist>
                         ${this.formats.map(f => `<sl-option value="${f.dimensions}">${f.orientation}: ${f.dimensions}</sl-option>`).join('')}
                         ${!this.formats.some(f => f.dimensions === this.selectedDimension) ? `<sl-option value="${this.selectedDimension}">Custom: ${this.selectedDimension}</sl-option>` : ''}
                     </sl-select>
@@ -282,7 +282,7 @@ class QpSettings extends HTMLElement {
                     <sl-input id="batch-input" type="number" label="Images to Generate" value="1" min="1"></sl-input>
                     <sl-input id="seed-input" type="number" label="Seed" placeholder="Random (leave empty)"></sl-input>
 
-                    <sl-select id="output-format-select" label="Output File Format" value="${this.selectedOutputFormat}" hoist @sl-change="${e => this.handleOutputFormatChange(e)}">
+                    <sl-select id="output-format-select" label="Output File Format" value="${this.selectedOutputFormat}" hoist>
                         <sl-option value="png">PNG (Lossless / Large)</sl-option>
                         <sl-option value="jpeg">JPEG (Compressed / Small)</sl-option>
                         <sl-option value="webp">WebP (Modern / Efficient)</sl-option>
@@ -290,6 +290,9 @@ class QpSettings extends HTMLElement {
                 </div>
             </qp-cartridge>
         `;
+
+        this.shadowRoot.getElementById('format-select').addEventListener('sl-change', (e) => this.handleFormatChange(e));
+        this.shadowRoot.getElementById('output-format-select').addEventListener('sl-change', (e) => this.handleOutputFormatChange(e));
     }
     get values() {
         const [w, h] = this.selectedDimension.split('*').map(Number);
@@ -412,7 +415,7 @@ class QpRender extends HTMLElement {
         if (this.isGenerating || !window.qpyt_app) return;
 
         const promptEl = document.querySelector('qp-prompt');
-        const settingsEl = document.querySelector('qp-settings');
+        let settingsEl = document.querySelector('qp-settings');
         const stylesEl = document.querySelector('qp-styles');
 
         if (!promptEl) {
@@ -429,7 +432,15 @@ class QpRender extends HTMLElement {
             negative_prompt = styled.negative_prompt;
         }
 
-        const settings = settingsEl ? settingsEl.getValue() : {};
+        // Fallback to mg-settings if qp-settings is missing (Legacy compatibility)
+        if (!settingsEl) {
+            settingsEl = document.querySelector('mg-settings');
+            if (settingsEl) console.log("[Bricks] Using legacy mg-settings");
+            else console.warn("[Bricks] No settings brick found!");
+        }
+
+        const settings = settingsEl ? (typeof settingsEl.getValue === 'function' ? settingsEl.getValue() : (settingsEl.values || {})) : {};
+        console.log("[Bricks] Captured Settings:", settings);
         const { batch_count = 1, ...genSettings } = settings;
         let successCount = 0;
 

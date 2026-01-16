@@ -212,7 +212,21 @@ class QpDashboard extends HTMLElement {
             </sl-dialog>
         `;
 
+        this.shadowRoot.getElementById('close-lightbox').addEventListener('click', () => {
+            this.shadowRoot.getElementById('lightbox').hide();
+        });
+
         this.shadowRoot.getElementById('open-dash').addEventListener('click', () => this.toggleDrawer());
+
+        // Re-attach listeners for history items
+        this.shadowRoot.querySelectorAll('.history-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const img = item.querySelector('.history-thumb');
+                if (img && img.dataset.url) {
+                    this.openLightbox(img.dataset.url);
+                }
+            });
+        });
     }
 
     toggleDrawer(open) {

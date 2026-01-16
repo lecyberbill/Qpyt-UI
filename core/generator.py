@@ -11,10 +11,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="diffusers.conf
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*upcast_vae.*")
 from pathlib import Path
 from diffusers import (
-    StableDiffusionXLPipeline, 
-    StableDiffusionXLImg2ImgPipeline,
-    StableDiffusionXLInpaintPipeline,
-    FluxPipeline,
+    FluxPipeline, 
     FluxImg2ImgPipeline,
     FluxInpaintPipeline,
     StableDiffusion3Pipeline,
@@ -27,6 +24,11 @@ from diffusers import (
     AutoencoderKL
 )
 from transformers import CLIPTextModel, T5EncoderModel, T5TokenizerFast
+# Suppress CLIP token limit warnings for Flux (as we rely on T5)
+import logging
+logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
+
+from compel import Compel, ReturnedEmbeddingsType
 from compel import Compel, ReturnedEmbeddingsType
 from typing import Optional, Dict, Any
 from core.config import config
@@ -587,6 +589,7 @@ class ModelManager:
         
         # Generation
         print(f"Generating {model_type} image for prompt: {prompt}")
+        print(f"[Debug] Dimensions: {width}x{height}, Scale: {guidance_scale}, Steps: {num_inference_steps}")
         if image:
             print(f"Img2Img mode detected (Denoising: {denoising_strength})")
         if negative_prompt:
