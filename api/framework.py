@@ -12,16 +12,20 @@ class QpytUI:
         self.available_library: List[Dict[str, Any]] = [
             {"id": "qp-image-input", "label": "Source Image", "type": "input", "icon": "image"},
             {"id": "qp-prompt", "label": "Prompt", "type": "input", "icon": "chat-left-text"},
-            {"id": "qp-settings", "label": "Global Settings", "type": "logic", "icon": "gear"},
-            {"id": "qp-translator", "label": "Translator (GPT/Qwen)", "type": "logic", "icon": "translate"},
+            {"id": "qp-settings", "label": "Global Settings", "type": "setting", "icon": "gear"},
+            {"id": "qp-translator", "label": "Translator (GPT/Qwen)", "type": "input", "icon": "translate"},
+            {"id": "qp-styles", "label": "Styles Selector", "type": "input", "icon": "palette"},
             {"id": "qp-llm-prompter", "label": "LLM Prompt Enhancer", "type": "input", "icon": "stars"},
             {"id": "qp-img2prompt", "label": "Image-to-Prompt", "type": "input", "icon": "camera"},
-            {"id": "qp-render-sdxl", "label": "SDXL Generator", "type": "output", "icon": "lightning-charge"},
-            {"id": "qp-render-flux", "label": "FLUX Generator", "type": "output", "icon": "magic"},
-            {"id": "qp-render-sd35turbo", "label": "SD3.5 Turbo (Lightning)", "type": "output", "icon": "lightning-charge"},
-            {"id": "qp-img2img", "label": "Img2Img Refiner", "type": "output", "icon": "magic"},
-            {"id": "qp-upscaler", "label": "Tiled Upscaler", "type": "output", "icon": "aspect-ratio"},
-            {"id": "qp-image-out", "label": "Final Output", "type": "output", "icon": "check-circle"}
+            {"id": "qp-render-sdxl", "label": "SDXL Generator", "type": "generator", "icon": "lightning-charge"},
+            {"id": "qp-render-flux", "label": "FLUX Generator", "type": "generator", "icon": "magic"},
+            {"id": "qp-render-sd35turbo", "label": "SD3.5 Turbo (Lightning)", "type": "generator", "icon": "lightning-charge"},
+            {"id": "qp-img2img", "label": "Img2Img Refiner", "type": "generator", "icon": "magic"},
+            {"id": "qp-upscaler", "label": "Tiled Upscaler", "type": "generator", "icon": "aspect-ratio"},
+            {"id": "qp-image-out", "label": "Final Output", "type": "output", "icon": "check-circle"},
+            {"id": "qp-rembg", "label": "Background Removal", "type": "generator", "icon": "scissors"},
+            {"id": "qp-save-to-disk", "label": "Save to Disk", "type": "output", "icon": "download"},
+            {"id": "qp-vectorize", "label": "Vectorize (SVG)", "type": "generator", "icon": "vector-pen"}
         ]
 
     def load_workflow(self, workflow_data: List[Dict[str, Any]]):
@@ -46,6 +50,7 @@ class QpytUI:
         # Définition de l'ordre prioritaire par type de brique
         priority = {
             "qp-image-input": 0,
+            "qp-styles": 1,
             "qp-llm-prompter": 1,
             "qp-img2prompt": 2,
             "qp-prompt": 2,
@@ -55,8 +60,13 @@ class QpytUI:
             "qp-render-flux": 101,
             "qp-render-sd35turbo": 102,
             "qp-img2img": 103,
+            "qp-inpaint": 103,
+            "qp-outpaint": 103,
             "qp-upscaler": 104,
+            "qp-rembg": 105,
+            "qp-vectorize": 106,
             "qp-image-out": 200,
+            "qp-save-to-disk": 201,
         }
         # Tri stable pour garder l'ordre d'insertion pour les briques de même priorité
         # On utilise une priorité par défaut de 50 pour les types non listés

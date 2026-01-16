@@ -13,10 +13,14 @@ from pathlib import Path
 from diffusers import (
     StableDiffusionXLPipeline, 
     StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLInpaintPipeline,
     FluxPipeline,
     FluxImg2ImgPipeline,
+    FluxInpaintPipeline,
     StableDiffusion3Pipeline,
     StableDiffusion3Img2ImgPipeline,
+    StableDiffusion3InpaintPipeline,
+    AutoPipelineForInpainting,
     GGUFQuantizationConfig,
     QuantoConfig,
     FluxTransformer2DModel,
@@ -42,6 +46,7 @@ class ModelManager:
     _current_model_path = None
     _current_model_type = None # 'sdxl', 'flux', 'sd3'
     _current_is_img2img = False
+    _current_is_inpaint = False
     _current_dtype = torch.float16
     _interrupt_flag = False
     _current_preview = None # Base64 string of the last preview
@@ -136,7 +141,8 @@ class ModelManager:
             print("Memory cleared.")
 
     @classmethod
-    def get_pipeline(cls, model_type: str, model_path: str, vae_name: Optional[str] = None, sampler_name: Optional[str] = None, is_img2img: bool = False):
+    def get_pipeline(cls, model_type: str, model_path: str, vae_name: Optional[str] = None, 
+                     sampler_name: Optional[str] = None, is_img2img: bool = False, is_inpaint: bool = False):
         # Normalize VAE name
         if vae_name == 'Default' or not vae_name:
             vae_name = None
@@ -149,9 +155,11 @@ class ModelManager:
         # CRITICAL: Always unload auxiliary models (Florence-2, LLM, etc.) to free VRAM
         # before any Stable Diffusion operation (load or switch).
         import core.analyzer as analyzer_lib
+        import core.rembg_service as rembg_lib
         from core.translator import TranslationManager
         from core.llm_prompter import LlmPrompterManager
         analyzer_lib.unload_model()
+        rembg_lib.unload_model()
         TranslationManager.unload_model()
         LlmPrompterManager.unload_model()
 
@@ -164,18 +172,24 @@ class ModelManager:
                     try:
                         # Map base models for from_pipe
                         base_pipes = {
-                            'sdxl': (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline),
-                            'flux': (FluxPipeline, FluxImg2ImgPipeline),
-                            'sd3': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline),
-                            'sd3_5_turbo': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline)
+                            'sdxl': (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline),
+                            'flux': (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline),
+                            'sd3': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline),
+                            'sd3_5_turbo': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline)
                         }
-                        txt_class, img_class = base_pipes.get(model_type, (None, None))
-                        target_class = img_class if is_img2img else txt_class
+                        txt_class, img_class, inp_class = base_pipes.get(model_type, (None, None, None))
+                        if is_inpaint:
+                            target_class = inp_class
+                        elif is_img2img:
+                            target_class = img_class
+                        else:
+                            target_class = txt_class
                         
                         if target_class:
                             # Re-apply optimizations after from_pipe as it can lose hooks
                             cls._pipeline = target_class.from_pipe(cls._pipeline)
                             cls._current_is_img2img = is_img2img
+                            cls._current_is_inpaint = is_inpaint
                             
                             # FORCE COMPONENT-LEVEL DTYPE RESTORATION
                             # from_pipe often reset modules to fp32
@@ -257,7 +271,12 @@ class ModelManager:
             # Model selection based on type
             if model_type == 'flux':
                 cls._current_dtype = torch.bfloat16
-                pipeline_class = FluxImg2ImgPipeline if is_img2img else FluxPipeline
+                if is_inpaint:
+                    pipeline_class = FluxInpaintPipeline
+                elif is_img2img:
+                    pipeline_class = FluxImg2ImgPipeline
+                else:
+                    pipeline_class = FluxPipeline
                 if model_path.lower().endswith((".safetensors", ".ckpt", ".sft")):
                     print(f"Loading local Flux model (quantized): {model_path}")
                     bfl_repo = "black-forest-labs/FLUX.1-schnell"
@@ -296,8 +315,13 @@ class ModelManager:
 
             elif model_type == 'sdxl':
                 cls._current_dtype = torch.float16
-                print(f"Loading local SDXL model ({'Img2Img' if is_img2img else 'Txt2Img'}): {model_path}")
-                pipeline_class = StableDiffusionXLImg2ImgPipeline if is_img2img else StableDiffusionXLPipeline
+                print(f"Loading local SDXL model ({'Inpaint' if is_inpaint else ('Img2Img' if is_img2img else 'Txt2Img')}): {model_path}")
+                if is_inpaint:
+                    pipeline_class = StableDiffusionXLInpaintPipeline
+                elif is_img2img:
+                    pipeline_class = StableDiffusionXLImg2ImgPipeline
+                else:
+                    pipeline_class = StableDiffusionXLPipeline
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=FutureWarning, message=".*upcast_vae.*")
                     cls._pipeline = pipeline_class.from_single_file(
@@ -316,7 +340,12 @@ class ModelManager:
 
             elif model_type in ['sd3', 'sd3_5_turbo']:
                 cls._current_dtype = torch.float16
-                pipeline_class = StableDiffusion3Img2ImgPipeline if is_img2img else StableDiffusion3Pipeline
+                if is_inpaint:
+                    pipeline_class = StableDiffusion3InpaintPipeline
+                elif is_img2img:
+                    pipeline_class = StableDiffusion3Img2ImgPipeline
+                else:
+                    pipeline_class = StableDiffusion3Pipeline
                 # Determine which exact pipe to use
                 load_repo = "stabilityai/stable-diffusion-3.5-large" if model_type == 'sd3' else "stabilityai/stable-diffusion-3.5-large-turbo"
                 
@@ -445,9 +474,11 @@ class ModelManager:
                 except ImportError:
                     pass
 
+            # Update current state if we loaded or switched
             cls._current_model_path = model_path
             cls._current_model_type = model_type
             cls._current_is_img2img = is_img2img
+            cls._current_is_inpaint = is_inpaint
             print(f"{model_type} model loaded successfully.")
 
         else:
@@ -488,11 +519,11 @@ class ModelManager:
             cls._pipeline.scheduler = sch_cls.from_config(cls._pipeline.scheduler.config, **extra_kwargs)
 
     @classmethod
-    def generate(cls, prompt: str, negative_prompt: Optional[str] = None, model_type: str = "sdxl", 
-                 model_name: Optional[str] = None, width: int = 1024, height: int = 1024, 
-                 guidance_scale: float = 7.0, num_inference_steps: int = 30, seed: Optional[int] = None,
-                 vae_name: Optional[str] = None, sampler_name: Optional[str] = None,
-                 image: Optional[str] = None, denoising_strength: float = 0.5):
+    def generate(cls, prompt: str, negative_prompt: str = "", model_type: str = "sdxl", 
+                 model_name: str = None, width: int = 1024, height: int = 1024, 
+                 guidance_scale: float = 7.0, num_inference_steps: int = 30, seed: int = None, 
+                 vae_name: str = None, sampler_name: str = None, image: str = None, 
+                 denoising_strength: float = 0.5, output_format: str = "png", mask: str = None):
         """
         Génère une image (ou transforme une existante) à partir des paramètres.
         """
@@ -529,8 +560,9 @@ class ModelManager:
         output_dir = Path(config.OUTPUT_DIR)
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Determine if we are doing Img2Img
+        # Determine if we are doing Img2Img or Inpaint
         is_now_img2img = image is not None
+        is_now_inpaint = mask is not None
         
         # Pipeline
         pipe, compel = ModelManager.get_pipeline(
@@ -538,15 +570,19 @@ class ModelManager:
             model_path=model_path, 
             vae_name=vae_name, 
             sampler_name=sampler_name,
-            is_img2img=is_now_img2img
+            is_img2img=is_now_img2img,
+            is_inpaint=is_now_inpaint
         )
         active_pipe = pipe
         ModelManager.reset_interrupt()
         
         # Seed
         generator = None
-        if seed is not None:
-            generator = torch.Generator(config.DEVICE).manual_seed(seed)
+        if seed is None:
+            import random
+            seed = random.randint(0, 2**32 - 1)
+        
+        generator = torch.Generator(config.DEVICE).manual_seed(seed)
         
         # Generation
         print(f"Generating {model_type} image for prompt: {prompt}")
@@ -583,6 +619,20 @@ class ModelManager:
             except Exception as e:
                 print(f"Failed to process input image: {e}")
                 init_image = None
+
+        # Prepare Mask if Inpaint
+        init_mask = None
+        if mask:
+            try:
+                header, encoded = mask.split(",", 1) if "," in mask else (None, mask)
+                mask_data = base64.b64decode(encoded)
+                init_mask = Image.open(BytesIO(mask_data)).convert("L") # Mode L for mask
+                # Resize mask to match target size
+                if init_mask.size != (width, height):
+                    init_mask = init_mask.resize((width, height), Image.LANCZOS)
+            except Exception as e:
+                print(f"Failed to process mask: {e}")
+                init_mask = None
 
         def interrupt_callback(pipe, step_index, timestep, callback_kwargs):
             ModelManager._current_step = step_index + 1
@@ -622,8 +672,15 @@ class ModelManager:
             "callback_on_step_end_tensor_inputs": ["latents"]
         }
 
-        # Prepare kwargs for Img2Img
-        if is_now_img2img:
+        # Prepare kwargs for Img2Img/Inpaint
+        if is_now_inpaint:
+            # Inpainting logic
+            kwargs.pop("width", None)
+            kwargs.pop("height", None)
+            kwargs["image"] = init_image
+            kwargs["mask_image"] = init_mask
+            kwargs["strength"] = denoising_strength
+        elif is_now_img2img:
             # Width/Height are not used in Img2Img as they come from the image
             kwargs.pop("width", None)
             kwargs.pop("height", None)
@@ -679,9 +736,25 @@ class ModelManager:
         final_output_dir.mkdir(parents=True, exist_ok=True)
         
         base_name = m_name.split('.')[0]
-        file_name = f"{base_name}_{day_folder}_{timestamp}_{width}x{height}_seed{seed or 'rand'}.png"
+        ext = output_format.lower()
+        if ext not in ['png', 'jpg', 'jpeg', 'webp']:
+            ext = 'png'
+        
+        # Mapping to PIL format
+        save_ext = ext
+        if ext == 'jpg': save_ext = 'jpeg'
+        
+        file_name = f"{base_name}_{day_folder}_{timestamp}_{width}x{height}_seed{seed}.{ext}"
         file_path = final_output_dir / file_name
-        image_out.save(file_path)
+        
+        save_kwargs = {}
+        if save_ext == 'jpeg':
+            save_kwargs['quality'] = 90
+            save_kwargs['optimize'] = True
+        elif save_ext == 'webp':
+            save_kwargs['quality'] = 90
+            
+        image_out.save(file_path, format=save_ext.upper(), **save_kwargs)
         
         exec_time = time.time() - start_time
         used_params = {
@@ -703,7 +776,7 @@ class ModelManager:
     @classmethod
     def upscale(cls, image_base64: str, scale_factor: float = 2.0, denoising_strength: float = 0.2, 
                 tile_size: int = 768, prompt: str = "", negative_prompt: str = "", 
-                model_name: Optional[str] = None, **kwargs):
+                model_name: Optional[str] = None, output_format: str = "png", seed: Optional[int] = 42, **kwargs):
         """
         Tiled upscaler implementation.
         Processes images in overlapping tiles to allow high-res upscaling on limited VRAM.
@@ -837,7 +910,7 @@ class ModelManager:
                         strength=denoising_strength,
                         num_inference_steps=inference_steps,
                         guidance_scale=3.5 if model_type == 'flux' else 7.0,
-                        generator=torch.Generator(config.DEVICE).manual_seed(42)
+                        generator=torch.Generator(config.DEVICE).manual_seed(seed or 42)
                     ).images[0]
                 
                 # Accumulate
@@ -862,13 +935,29 @@ class ModelManager:
         from datetime import datetime
         now = datetime.now()
         day_folder = now.strftime("%Y-%m-%d")
-        file_name = f"upscale_{uuid.uuid4().hex[:8]}.png"
+        
+        ext = output_format.lower()
+        if ext not in ['png', 'jpg', 'jpeg', 'webp']:
+            ext = 'png'
+        save_ext = ext
+        if ext == 'jpg': save_ext = 'jpeg'
+        
+        timestamp = now.strftime("%H%M%S")
+        file_name = f"upscale_{day_folder}_{timestamp}_seed{seed}.{ext}"
         
         final_output_dir = Path(config.OUTPUT_DIR) / day_folder
         final_output_dir.mkdir(parents=True, exist_ok=True)
         
         file_path = final_output_dir / file_name
-        image_out.save(file_path)
+        
+        save_kwargs = {}
+        if save_ext == 'jpeg':
+            save_kwargs['quality'] = 90
+            save_kwargs['optimize'] = True
+        elif save_ext == 'webp':
+            save_kwargs['quality'] = 90
+
+        image_out.save(file_path, format=save_ext.upper(), **save_kwargs)
         
         exec_time = time.time() - start_time
         used_params = {
@@ -877,7 +966,8 @@ class ModelManager:
             "denoising": denoising_strength,
             "tiles": total_tiles,
             "width": target_w,
-            "height": target_h
+            "height": target_h,
+            "seed": seed
         }
         
         print(f"[Upscaler] Success: {target_w}x{target_h} in {exec_time:.1f}s")

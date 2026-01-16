@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any, List
 import uuid
 
 # --- LE CONTRAT D'ENTRÉE ---
@@ -18,6 +18,7 @@ class ImageGenerationRequest(BaseModel):
     image: Optional[str] = Field(None, description="Image source en Base64 pour Img2Img")
     denoising_strength: float = Field(0.5, ge=0.0, le=1.0, description="Force de transformation (0=identique, 1=nouveau)")
     batch_count: Optional[int] = Field(None, description="Nombre d'images à générer")
+    output_format: str = Field("png", description="Format de sortie (png, jpeg, webp)")
 
 # --- LE CONTRAT DE SORTIE ---
 class ImageGenerationResponse(BaseModel):
@@ -40,3 +41,23 @@ class UpscaleRequest(BaseModel):
     negative_prompt: Optional[str] = None
     model_name: Optional[str] = None
     model_type: Optional[str] = "upscale"
+    output_format: str = Field("png", description="Format de sortie (png, jpeg, webp)")
+    seed: Optional[int] = None
+
+class RembgRequest(BaseModel):
+    image: str = Field(..., description="Image source en Base64 ou chemin /view/")
+
+class SaveToDiskRequest(BaseModel):
+    image_url: str = Field(..., description="URL de l'image (/view/...)")
+    custom_path: str = Field(..., description="Chemin dossier sur le disque")
+    pattern: str = Field("result_{seed}", description="Paterne de nom de fichier")
+    output_format: str = "png"
+    params: Dict[str, Any] = {}
+
+class InpaintRequest(ImageGenerationRequest):
+    mask: str = Field(..., description="Masque en Base64")
+    # Inherits prompt, model_type, width, height, etc. from ImageGenerationRequest
+
+class OutpaintRequest(InpaintRequest):
+    # Same as inpaint but often handled with different padding logic
+    pass

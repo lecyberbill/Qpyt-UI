@@ -58,12 +58,15 @@ class QpytApp {
                 return;
             }
 
+            // Collect current workflow state from DOM
+            const bricks = this.getCurrentWorkflowState();
+
             try {
                 saveBtn.loading = true;
                 const response = await fetch('/workflows/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name })
+                    body: JSON.stringify({ name, workflow: bricks })
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
@@ -185,7 +188,22 @@ class QpytApp {
         });
     }
 
+    getCurrentWorkflowState() {
+        if (!this.workflow) return [];
+        return Array.from(this.workflow.children).map(el => {
+            const id = el.getAttribute('brick-id');
+            const type = el.tagName.toLowerCase();
+            let props = {};
+            if (typeof el.getValue === 'function') props = el.getValue();
+            else if (typeof el.getValues === 'function') props = el.getValues();
+            return { id, type, props };
+        });
+    }
+
     async addBrick(type) {
+        // 1. Capture current values
+        const currentStates = this.getCurrentWorkflowState();
+
         try {
             console.log(`Adding brick: ${type}`);
             const response = await fetch('/brick', {
@@ -195,7 +213,13 @@ class QpytApp {
             });
             const result = await response.json();
             if (result.status === 'success') {
-                this.mountWorkflow(result.workflow);
+                // 2. Merge local states with new workflow structure
+                const mergedWorkflow = result.workflow.map(brick => {
+                    const saved = currentStates.find(s => s.id === brick.id);
+                    if (saved) return { ...brick, props: saved.props };
+                    return brick;
+                });
+                this.mountWorkflow(mergedWorkflow);
                 this.notify("Module added successfully", "success");
             } else {
                 this.notify(`Error: ${result.message}`, "danger");
@@ -207,6 +231,9 @@ class QpytApp {
     }
 
     async removeBrick(brickId) {
+        // 1. Capture current values
+        const currentStates = this.getCurrentWorkflowState();
+
         try {
             console.log(`Removing brick: ${brickId}`);
             const response = await fetch(`/brick/${brickId}`, {
@@ -214,7 +241,13 @@ class QpytApp {
             });
             const result = await response.json();
             if (result.status === 'success') {
-                this.mountWorkflow(result.workflow);
+                // 2. Merge local states
+                const mergedWorkflow = result.workflow.map(brick => {
+                    const saved = currentStates.find(s => s.id === brick.id);
+                    if (saved) return { ...brick, props: saved.props };
+                    return brick;
+                });
+                this.mountWorkflow(mergedWorkflow);
                 this.notify("Module removed", "primary");
             } else {
                 this.notify(`Error: ${result.message}`, "danger");
@@ -250,7 +283,11 @@ class QpytApp {
                 if (el) {
                     // Set props
                     if (brick.props) {
-                        Object.assign(el, brick.props);
+                        if (typeof el.setValues === 'function') {
+                            el.setValues(brick.props);
+                        } else {
+                            Object.assign(el, brick.props);
+                        }
                     }
                     // We REMOVED the explicit el.render() here because connectedCallback handles it once
                 }

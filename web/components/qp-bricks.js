@@ -56,6 +56,13 @@ class QpPrompt extends HTMLElement {
             input.focus();
         }
     }
+    setValues(values) {
+        if (!values) return;
+        const pInput = this.shadowRoot.querySelector('#prompt-input');
+        const nInput = this.shadowRoot.querySelector('#negative-input');
+        if (pInput && values.prompt !== undefined) pInput.value = values.prompt;
+        if (nInput && values.negative_prompt !== undefined) nInput.value = values.negative_prompt;
+    }
 }
 customElements.define('qp-prompt', QpPrompt);
 
@@ -180,6 +187,18 @@ class QpImageInput extends HTMLElement {
     }
 
     getImage() { return this.base64; }
+    getValue() {
+        return {
+            previewUrl: this.previewUrl,
+            base64: this.base64
+        };
+    }
+    setValues(values) {
+        if (!values) return;
+        this.previewUrl = values.previewUrl || "";
+        this.base64 = values.base64 || "";
+        this.render();
+    }
 }
 customElements.define('qp-image-input', QpImageInput);
 
@@ -190,7 +209,8 @@ class QpSettings extends HTMLElement {
         super();
         this.attachShadow({ mode: 'open' });
         this.formats = [];
-        this.selectedFormat = "1024*1024";
+        this.selectedDimension = "1024*1024";
+        this.selectedOutputFormat = "png";
         this.hasRendered = false;
     }
     connectedCallback() {
@@ -203,32 +223,56 @@ class QpSettings extends HTMLElement {
             const data = await res.json();
             if (data.settings && data.settings.FORMATS) {
                 this.formats = data.settings.FORMATS;
-                const select = this.shadowRoot.getElementById('format-select');
-                if (select) {
-                    select.innerHTML = this.formats.map(f => `<sl-option value="${f.dimensions}">${f.orientation}: ${f.dimensions}</sl-option>`).join('');
-                } else {
-                    this.hasRendered = false;
-                    this.render();
-                }
+                this.hasRendered = false; // Re-render to show options
+                this.render();
             }
         } catch (e) { console.error(e); }
     }
 
     handleFormatChange(e) {
-        this.selectedFormat = e.target.value;
-        this.render();
+        this.selectedDimension = e.target.value;
     }
+
+    handleOutputFormatChange(e) {
+        this.selectedOutputFormat = e.target.value;
+    }
+
     attributeChangedCallback() { this.render(); }
+
+    setValues(values) {
+        if (values.width && values.height) {
+            this.selectedDimension = `${values.width}*${values.height}`;
+        }
+        if (values.output_format) {
+            this.selectedOutputFormat = values.output_format;
+        }
+
+        this.hasRendered = false;
+        this.render();
+
+        // Update other inputs after render
+        setTimeout(() => {
+            const gs = this.shadowRoot.getElementById('gs-input');
+            const steps = this.shadowRoot.getElementById('steps-input');
+            const batch = this.shadowRoot.getElementById('batch-input');
+            const seed = this.shadowRoot.getElementById('seed-input');
+
+            if (gs && values.guidance_scale) gs.value = values.guidance_scale;
+            if (steps && values.num_inference_steps) steps.value = values.num_inference_steps;
+            if (batch && values.batch_count) batch.value = values.batch_count;
+            if (seed && values.seed) seed.value = values.seed;
+        }, 50);
+    }
 
     render() {
         if (this.hasRendered) return;
         this.hasRendered = true;
         const brickId = this.getAttribute('brick-id') || '';
         this.shadowRoot.innerHTML = `
-            <qp-cartridge title="Settings" type="logic" brick-id="${brickId}">
+            <qp-cartridge title="Settings" type="setting" brick-id="${brickId}">
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                     
-                    <sl-select id="format-select" label="Image Format" value="${this.selectedFormat}" hoist @sl-change="${e => this.handleFormatChange(e)}">
+                    <sl-select id="format-select" label="Image Dimensions" value="${this.selectedDimension}" hoist @sl-change="${e => this.handleFormatChange(e)}">
                         ${this.formats.map(f => `<sl-option value="${f.dimensions}">${f.orientation}: ${f.dimensions}</sl-option>`).join('')}
                     </sl-select>
 
@@ -236,20 +280,41 @@ class QpSettings extends HTMLElement {
                     <sl-input id="steps-input" type="number" label="Inference Steps" value="30"></sl-input>
                     <sl-input id="batch-input" type="number" label="Images to Generate" value="1" min="1"></sl-input>
                     <sl-input id="seed-input" type="number" label="Seed" placeholder="Random (leave empty)"></sl-input>
+
+                    <sl-select id="output-format-select" label="Output File Format" value="${this.selectedOutputFormat}" hoist @sl-change="${e => this.handleOutputFormatChange(e)}">
+                        <sl-option value="png">PNG (Lossless / Large)</sl-option>
+                        <sl-option value="jpeg">JPEG (Compressed / Small)</sl-option>
+                        <sl-option value="webp">WebP (Modern / Efficient)</sl-option>
+                    </sl-select>
                 </div>
             </qp-cartridge>
         `;
     }
     get values() {
-        const [w, h] = this.selectedFormat.split('*').map(Number);
+        const [w, h] = this.selectedDimension.split('*').map(Number);
         return {
             width: w || 1024,
             height: h || 1024,
             guidance_scale: parseFloat(this.shadowRoot.querySelector('#gs-input').value),
             num_inference_steps: parseInt(this.shadowRoot.querySelector('#steps-input').value),
             batch_count: parseInt(this.shadowRoot.querySelector('#batch-input').value) || 1,
-            seed: this.shadowRoot.querySelector('#seed-input').value ? parseInt(this.shadowRoot.querySelector('#seed-input').value) : null
+            seed: this.shadowRoot.querySelector('#seed-input').value ? parseInt(this.shadowRoot.querySelector('#seed-input').value) : null,
+            output_format: this.selectedOutputFormat
         };
+    }
+    setValues(values) {
+        if (!values) return;
+        if (values.width && values.height) this.selectedDimension = `${values.width}*${values.height}`;
+        this.selectedOutputFormat = values.output_format || 'png';
+        this.hasRendered = false;
+        this.render();
+        // After render, set values that are in inputs
+        setTimeout(() => {
+            if (values.guidance_scale !== undefined) this.shadowRoot.querySelector('#gs-input').value = values.guidance_scale;
+            if (values.num_inference_steps !== undefined) this.shadowRoot.querySelector('#steps-input').value = values.num_inference_steps;
+            if (values.batch_count !== undefined) this.shadowRoot.querySelector('#batch-input').value = values.batch_count;
+            if (values.seed !== undefined) this.shadowRoot.querySelector('#seed-input').value = values.seed || "";
+        }, 0);
     }
     getValue() { return this.values; }
     getValues() { return this.values; }
@@ -347,13 +412,22 @@ class QpRender extends HTMLElement {
 
         const promptEl = document.querySelector('qp-prompt');
         const settingsEl = document.querySelector('qp-settings');
+        const stylesEl = document.querySelector('qp-styles');
 
         if (!promptEl) {
             window.qpyt_app.notify("Missing 'Prompt' brick!", "danger");
             return;
         }
 
-        const { prompt, negative_prompt } = promptEl.getValue();
+        let { prompt, negative_prompt } = promptEl.getValue();
+
+        // Apply Fooocus styles if available
+        if (stylesEl && typeof stylesEl.applyStyles === 'function') {
+            const styled = stylesEl.applyStyles(prompt, negative_prompt);
+            prompt = styled.prompt;
+            negative_prompt = styled.negative_prompt;
+        }
+
         const settings = settingsEl ? settingsEl.getValue() : {};
         const { batch_count = 1, ...genSettings } = settings;
 
@@ -393,7 +467,8 @@ class QpRender extends HTMLElement {
                         image: image,
                         denoising_strength: image ? this.denoisingStrength : undefined,
                         ...genSettings,
-                        seed: genSettings.seed ? genSettings.seed + i : null
+                        seed: genSettings.seed ? genSettings.seed + i : null,
+                        output_format: genSettings.output_format
                     })
                 });
 
@@ -404,7 +479,15 @@ class QpRender extends HTMLElement {
 
                     // Signal global output
                     window.dispatchEvent(new CustomEvent('qpyt-output', {
-                        detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                        detail: {
+                            url: this.lastImageUrl,
+                            brickId: this.getAttribute('brick-id'),
+                            params: {
+                                seed: result.data.metadata?.seed || null,
+                                prompt: prompt,
+                                model: this.selectedModel
+                            }
+                        },
                         bubbles: true,
                         composed: true
                     }));
@@ -494,6 +577,26 @@ class QpRender extends HTMLElement {
         }
     }
 
+    getValue() {
+        return {
+            selectedModel: this.selectedModel,
+            selectedSampler: this.selectedSampler,
+            selectedVae: this.selectedVae,
+            denoisingStrength: this.denoisingStrength,
+            lastImageUrl: this.lastImageUrl
+        };
+    }
+    setValues(values) {
+        if (!values) return;
+        if (values.selectedModel !== undefined) this.selectedModel = values.selectedModel;
+        if (values.selectedSampler !== undefined) this.selectedSampler = values.selectedSampler;
+        if (values.selectedVae !== undefined) this.selectedVae = values.selectedVae;
+        if (values.denoisingStrength !== undefined) this.denoisingStrength = values.denoisingStrength;
+        if (values.lastImageUrl !== undefined) this.lastImageUrl = values.lastImageUrl;
+        this.hasRendered = false;
+        this.render();
+    }
+
     render() {
         if (this.hasRendered) return;
         this.hasRendered = true;
@@ -553,7 +656,7 @@ class QpRender extends HTMLElement {
                     --track-color: rgba(255,255,255,0.1);
                 }
             </style>
-            <qp-cartridge title="${title}" type="output" brick-id="${brickId}">
+            <qp-cartridge title="${title}" type="generator" brick-id="${brickId}">
                 <div class="render-container">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
                         <sl-select id="model-select" label="Checkpoint (.safetensors)" value="${this.selectedModel}" hoist style="width: 100%;">
@@ -769,8 +872,15 @@ class QpUpscaler extends QpRender {
 
         const promptEl = document.querySelector('qp-prompt');
         const settingsEl = document.querySelector('qp-settings');
+        const stylesEl = document.querySelector('qp-styles');
 
-        const { prompt, negative_prompt } = promptEl ? promptEl.getValue() : { prompt: "", negative_prompt: "" };
+        let { prompt, negative_prompt } = promptEl ? promptEl.getValue() : { prompt: "", negative_prompt: "" };
+
+        if (stylesEl && typeof stylesEl.applyStyles === 'function') {
+            const styled = stylesEl.applyStyles(prompt, negative_prompt);
+            prompt = styled.prompt;
+            negative_prompt = styled.negative_prompt;
+        }
         const settings = settingsEl ? settingsEl.getValue() : {};
 
         const imageSource = document.querySelector('qp-image-input');
@@ -811,6 +921,7 @@ class QpUpscaler extends QpRender {
                     upscale_factor: this.upscaleFactor,
                     denoising_strength: this.denoisingStrength,
                     tile_size: this.tileSize,
+                    output_format: settings.output_format || "png",
                     ...settings
                 })
             });
@@ -822,7 +933,16 @@ class QpUpscaler extends QpRender {
 
                 // Signal global output
                 window.dispatchEvent(new CustomEvent('qpyt-output', {
-                    detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                    detail: {
+                        url: this.lastImageUrl,
+                        brickId: this.getAttribute('brick-id'),
+                        params: {
+                            seed: result.data.metadata?.seed || null,
+                            prompt: prompt,
+                            model: this.selectedModel,
+                            upscale_factor: this.upscaleFactor
+                        }
+                    },
                     bubbles: true,
                     composed: true
                 }));
@@ -962,6 +1082,460 @@ class QpImageOut extends HTMLElement {
 }
 customElements.define('qp-image-out', QpImageOut);
 
+// Background Removal Brick
+class QpRembg extends HTMLElement {
+    static get observedAttributes() { return ['brick-id']; }
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.isGenerating = false;
+        this.lastImageUrl = "";
+    }
+
+    connectedCallback() {
+        this.render();
+    }
+
+    async generate() {
+        if (this.isGenerating || !window.qpyt_app) return;
+
+        const imageSource = document.querySelector('qp-image-input');
+        let image = imageSource?.getImage() || null;
+
+        if (!image && window.qpyt_app?.lastImage) {
+            image = window.qpyt_app.lastImage;
+            console.log("[REMBG] Auto-picking last generated image:", image);
+        }
+
+        if (!image) {
+            window.qpyt_app.notify("REMBG requires a Source Image or a previous generation!", "danger");
+            return;
+        }
+
+        this.isGenerating = true;
+        this.render();
+
+        try {
+            const response = await fetch('/rembg', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image })
+            });
+
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.lastImageUrl = result.data.image_url;
+                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+
+                // Signal global output
+                window.dispatchEvent(new CustomEvent('qpyt-output', {
+                    detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                    bubbles: true,
+                    composed: true
+                }));
+
+                const dashboard = document.querySelector('qp-dashboard');
+                if (dashboard) dashboard.addEntry(result.data);
+                window.qpyt_app.notify("Background removed!", "success");
+            } else {
+                window.qpyt_app.notify(`Error: ${result.message}`, "danger");
+            }
+        } catch (e) {
+            console.error(e);
+            window.qpyt_app.notify("Connection error", "danger");
+        } finally {
+            this.isGenerating = false;
+            this.render();
+        }
+    }
+
+    getValue() {
+        return { lastImageUrl: this.lastImageUrl };
+    }
+    setValues(values) {
+        if (!values) return;
+        this.lastImageUrl = values.lastImageUrl || "";
+        this.render();
+    }
+
+    render() {
+        const brickId = this.getAttribute('brick-id') || '';
+        this.shadowRoot.innerHTML = `
+            <style>
+                .rembg-container {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1.2rem;
+                    padding: 0.5rem;
+                }
+                .status-badge {
+                    background: rgba(16, 185, 129, 0.1);
+                    border: 1px solid rgba(16, 185, 129, 0.2);
+                    padding: 0.8rem;
+                    border-radius: 8px;
+                    text-align: center;
+                    font-size: 0.85rem;
+                    color: #10b981;
+                }
+            </style>
+            <qp-cartridge title="Background Removal" icon="scissors" type="generator" brick-id="${brickId}">
+                <div class="rembg-container">
+                    <div class="status-badge">
+                        <sl-icon name="info-circle" style="margin-right:0.5rem"></sl-icon>
+                        Input: Last generation or Source
+                    </div>
+                    
+                    <sl-button variant="primary" size="medium" @click="${() => this.generate()}" 
+                               ?loading="${this.isGenerating}" style="width: 100%;">
+                        <sl-icon slot="prefix" name="scissors"></sl-icon>
+                        Extract Foreground
+                    </sl-button>
+                    
+                    ${this.isGenerating ? `
+                        <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; font-style: italic;">
+                            Processing Mask (U2NET)...
+                        </div>
+                    ` : ''}
+                </div>
+            </qp-cartridge>
+        `;
+
+        this.shadowRoot.querySelector('sl-button').onclick = () => this.generate();
+    }
+}
+customElements.define('qp-rembg', QpRembg);
+
+// SVG Vectorization Brick
+class QpVectorize extends HTMLElement {
+    static get observedAttributes() { return ['brick-id']; }
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.isGenerating = false;
+        this.lastSvgUrl = "";
+        this.selectedMode = "spline";
+        this.colorPrecision = 8;
+        this.colorMode = "color";
+    }
+
+    connectedCallback() {
+        this.render();
+    }
+
+    async generate() {
+        if (this.isGenerating || !window.qpyt_app) return;
+
+        if (typeof ImageTracer === 'undefined') {
+            window.qpyt_app?.notify("ImageTracer library not loaded yet.", "warning");
+            return;
+        }
+
+        const imageSource = document.querySelector('qp-image-input');
+        let image = imageSource?.getImage() || null;
+
+        if (!image && window.qpyt_app?.lastImage) {
+            image = window.qpyt_app.lastImage;
+        }
+
+        if (!image) {
+            window.qpyt_app.notify("Vectorization requires an image!", "danger");
+            return;
+        }
+
+        this.isGenerating = true;
+        this.render();
+
+        const options = {
+            ltres: this.selectedMode === 'spline' ? 1 : 10,
+            qtres: this.selectedMode === 'spline' ? 1 : 10,
+            pathomit: 8,
+            colorsampling: 1,
+            numberofcolors: parseInt(this.colorPrecision),
+            mincolorratio: 0,
+            colorquantcycles: 3,
+            scale: 1,
+            lcpr: 0,
+            qcpr: 0,
+            desc: false,
+            viewbox: true
+        };
+
+        if (this.colorMode === 'binary') {
+            options.colorsampling = 0;
+            options.numberofcolors = 2;
+        }
+
+        setTimeout(() => {
+            try {
+                ImageTracer.imageToSVG(image, (svgString) => {
+                    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+                    if (this.lastSvgUrl) URL.revokeObjectURL(this.lastSvgUrl);
+                    this.lastSvgUrl = URL.createObjectURL(blob);
+
+                    window.dispatchEvent(new CustomEvent('qpyt-output', {
+                        detail: { url: this.lastSvgUrl, brickId: this.getAttribute('brick-id'), params: { extension: 'svg' } },
+                        bubbles: true,
+                        composed: true
+                    }));
+
+                    window.qpyt_app.notify("SVG Vectorization complete!", "success");
+                    this.isGenerating = false;
+                    this.render();
+                }, options);
+            } catch (e) {
+                console.error("[Vectorize] Error:", e);
+                window.qpyt_app.notify("Vectorization failed", "danger");
+                this.isGenerating = false;
+                this.render();
+            }
+        }, 50);
+    }
+
+    getValue() {
+        return {
+            lastSvgUrl: this.lastSvgUrl,
+            selectedMode: this.selectedMode,
+            colorPrecision: this.colorPrecision,
+            colorMode: this.colorMode
+        };
+    }
+    setValues(values) {
+        if (!values) return;
+        if (values.lastSvgUrl !== undefined) this.lastSvgUrl = values.lastSvgUrl;
+        if (values.selectedMode !== undefined) this.selectedMode = values.selectedMode;
+        if (values.colorPrecision !== undefined) this.colorPrecision = values.colorPrecision;
+        if (values.colorMode !== undefined) this.colorMode = values.colorMode;
+        this.render();
+    }
+
+    render() {
+        const brickId = this.getAttribute('brick-id') || '';
+        this.shadowRoot.innerHTML = `
+            <style>
+                .vec-container {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1.2rem;
+                    padding: 0.5rem;
+                }
+                .hint {
+                    font-size: 0.75rem;
+                    color: #94a3b8;
+                    margin-top: -0.5rem;
+                }
+                sl-range::part(base) {
+                    --track-color-active: #f59e0b;
+                }
+                .preview-svg {
+                    width: 100%;
+                    max-height: 200px;
+                    background: white;
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    overflow: hidden;
+                    border: 1px solid rgba(255,255,255,0.1);
+                }
+                .preview-svg img {
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                }
+            </style>
+            <qp-cartridge title="Vectorize (SVG)" icon="vector-pen" type="generator" brick-id="${brickId}">
+                <div class="vec-container">
+                    <sl-select id="mode-select" label="Drawing Mode" value="${this.selectedMode}" hoist>
+                        <sl-option value="spline">Splines (Smooth curves)</sl-option>
+                        <sl-option value="polygon">Polygons (Sharp lines)</sl-option>
+                    </sl-select>
+
+                    <sl-select id="type-select" label="Color Type" value="${this.colorMode}" hoist>
+                        <sl-option value="color">Full Color</sl-option>
+                        <sl-option value="binary">Black & White</sl-option>
+                    </sl-select>
+
+                    <sl-range id="prec-range" label="Color Precision" min="2" max="64" step="1" value="${this.colorPrecision}" 
+                              help-text="${this.colorPrecision} colors targets. More colors = more paths."></sl-range>
+                    
+                    <sl-button variant="primary" size="medium" id="btn-vec" 
+                               ?loading="${this.isGenerating}" style="width: 100%;">
+                        <sl-icon slot="prefix" name="vector-pen"></sl-icon>
+                        Browser-Vectorize
+                    </sl-button>
+
+                    ${this.lastSvgUrl ? `
+                        <div class="preview-svg">
+                            <img src="${this.lastSvgUrl}" alt="SVG Preview">
+                        </div>
+                        <sl-button variant="success" size="small" outline download="vectorized_image.svg" href="${this.lastSvgUrl}" style="width: 100%;">
+                            <sl-icon slot="prefix" name="download"></sl-icon>
+                            Download SVG
+                        </sl-button>
+                    ` : ''}
+                </div>
+            </qp-cartridge>
+        `;
+
+        this.shadowRoot.getElementById('mode-select')?.addEventListener('sl-change', (e) => {
+            this.selectedMode = e.target.value;
+            this.render();
+        });
+        this.shadowRoot.getElementById('type-select')?.addEventListener('sl-change', (e) => {
+            this.colorMode = e.target.value;
+            this.render();
+        });
+        this.shadowRoot.getElementById('prec-range')?.addEventListener('sl-change', (e) => {
+            this.colorPrecision = e.target.value;
+            this.render(); // Re-render for help-text
+        });
+        this.shadowRoot.getElementById('btn-vec')?.addEventListener('click', () => this.generate());
+    }
+}
+customElements.define('qp-vectorize', QpVectorize);
+
+// Save to Disk Brick
+class QpSaveToDisk extends HTMLElement {
+    static get observedAttributes() { return ['brick-id']; }
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.isSaving = false;
+        this.exportPath = "C:/QpytExports";
+        this.filenamePattern = "gen_{seed}_{date}_{time}";
+        this.selectedFormat = "png";
+        this.lastParams = {};
+    }
+
+    connectedCallback() {
+        this.render();
+        window.addEventListener('qpyt-output', (e) => {
+            if (e.detail.params) {
+                this.lastParams = e.detail.params;
+                console.log("[SaveToDisk] Captured params:", this.lastParams);
+            }
+        });
+    }
+
+    async doSave() {
+        if (this.isSaving || !window.qpyt_app) return;
+
+        const pathInput = this.shadowRoot.getElementById('path-input');
+        const patternInput = this.shadowRoot.getElementById('pattern-input');
+        const formatSelect = this.shadowRoot.getElementById('format-select');
+
+        this.exportPath = pathInput.value;
+        this.filenamePattern = patternInput.value;
+        this.selectedFormat = formatSelect.value;
+
+        const imageSource = document.querySelector('qp-image-input');
+        let imageUrl = window.qpyt_app?.lastImage || "";
+
+        if (!imageUrl) {
+            window.qpyt_app.notify("No image to save!", "warning");
+            return;
+        }
+
+        this.isSaving = true;
+        this.render();
+
+        try {
+            const response = await fetch('/save-to-disk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image_url: imageUrl,
+                    custom_path: this.exportPath,
+                    pattern: this.filenamePattern,
+                    output_format: this.selectedFormat,
+                    params: this.lastParams
+                })
+            });
+
+            const result = await response.json();
+            if (result.status === 'success') {
+                window.qpyt_app.notify("Image saved successfully!", "success");
+            } else {
+                window.qpyt_app.notify(`Error: ${result.message}`, "danger");
+            }
+        } catch (e) {
+            console.error(e);
+            window.qpyt_app.notify("Connection error", "danger");
+        } finally {
+            this.isSaving = false;
+            this.render();
+        }
+    }
+
+    getValue() {
+        return {
+            exportPath: this.exportPath,
+            filenamePattern: this.filenamePattern,
+            selectedFormat: this.selectedFormat,
+            lastParams: this.lastParams
+        };
+    }
+    setValues(values) {
+        if (!values) return;
+        if (values.exportPath !== undefined) this.exportPath = values.exportPath;
+        if (values.filenamePattern !== undefined) this.filenamePattern = values.filenamePattern;
+        if (values.selectedFormat !== undefined) this.selectedFormat = values.selectedFormat;
+        if (values.lastParams !== undefined) this.lastParams = values.lastParams;
+        this.render();
+    }
+
+    render() {
+        const brickId = this.getAttribute('brick-id') || '';
+        this.shadowRoot.innerHTML = `
+            <style>
+                .save-container {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1.2rem;
+                    padding: 0.5rem;
+                }
+                .hint {
+                    font-size: 0.75rem;
+                    color: #94a3b8;
+                    margin-top: -0.5rem;
+                    line-height: 1.4;
+                }
+                .hint code {
+                    color: #f59e0b;
+                    background: rgba(245, 158, 11, 0.1);
+                    padding: 0 4px;
+                    border-radius: 4px;
+                }
+            </style>
+            <qp-cartridge title="Save to Disk" icon="download" type="output" brick-id="${brickId}">
+                <div class="save-container">
+                    <sl-input id="path-input" label="Export Directory" value="${this.exportPath}" help-text="Full path on your PC"></sl-input>
+                    
+                    <sl-input id="pattern-input" label="Filename Pattern" value="${this.filenamePattern}"></sl-input>
+                    <div class="hint">
+                        Tokens: <code>{seed}</code>, <code>{date}</code>, <code>{time}</code>, <code>{uuid}</code>, <code>{ext}</code>
+                    </div>
+
+                    <sl-select id="format-select" label="Output Format" value="${this.selectedFormat}" hoist>
+                        <sl-option value="png">PNG</sl-option>
+                        <sl-option value="jpeg">JPEG</sl-option>
+                        <sl-option value="webp">WebP</sl-option>
+                    </sl-select>
+
+                    <sl-button variant="primary" size="medium" id="btn-save" 
+                               ?loading="${this.isSaving}" style="width: 100%;">
+                        <sl-icon slot="prefix" name="save"></sl-icon>
+                        Save Current Result
+                    </sl-button>
+                </div>
+            </qp-cartridge>
+        `;
+
+        this.shadowRoot.getElementById('btn-save').addEventListener('click', () => this.doSave());
+    }
+}
+customElements.define('qp-save-to-disk', QpSaveToDisk);
+
 // Translator (Placeholder)
 class QpTranslator extends HTMLElement {
     static get observedAttributes() { return ['brick-id']; }
@@ -1012,6 +1586,21 @@ class QpTranslator extends HTMLElement {
         }
     }
 
+    getValue() {
+        const input = this.shadowRoot.getElementById('fr-prompt');
+        return {
+            inputValue: input ? input.value : "",
+            result: this.result
+        };
+    }
+    setValues(values) {
+        if (!values) return;
+        this.result = values.result || "";
+        this.render();
+        const input = this.shadowRoot.getElementById('fr-prompt');
+        if (input && values.inputValue !== undefined) input.value = values.inputValue;
+    }
+
     render() {
         const brickId = this.getAttribute('brick-id');
         this.shadowRoot.innerHTML = `
@@ -1033,7 +1622,7 @@ class QpTranslator extends HTMLElement {
                     word-break: break-word;
                 }
             </style>
-            <qp-cartridge title="Translator (FR ➔ EN)" type="logic" brick-id="${brickId}">
+            <qp-cartridge title="Translator (FR ➔ EN)" type="input" brick-id="${brickId}">
                 <div class="translator-container">
                     <sl-textarea id="fr-prompt" label="French Prompt" placeholder="Entrez votre prompt en français..." resize="auto" size="small"></sl-textarea>
                     
@@ -1058,6 +1647,117 @@ class QpTranslator extends HTMLElement {
     }
 }
 customElements.define('qp-translator', QpTranslator);
+
+// Styles Selector Brick
+class QpStyles extends HTMLElement {
+    static get observedAttributes() { return ['brick-id']; }
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.allStyles = [];
+        this.selectedKeys = ["", "", "", ""];
+    }
+
+    connectedCallback() {
+        this.fetchStyles();
+    }
+
+    async fetchStyles() {
+        try {
+            const res = await fetch('/styles');
+            this.allStyles = await res.json();
+            this.render();
+        } catch (e) {
+            console.error("Failed to fetch styles", e);
+        }
+    }
+
+    getValue() {
+        return { selectedKeys: [...this.selectedKeys] };
+    }
+
+    setValues(values) {
+        if (values && values.selectedKeys) {
+            this.selectedKeys = [...values.selectedKeys];
+            this.render();
+        }
+    }
+
+    applyStyles(prompt, negative_prompt) {
+        let finalPrompt = prompt || "";
+        let finalNegative = negative_prompt || "";
+
+        console.log(`[Styles] Initial Prompt: "${finalPrompt}"`);
+
+        for (const key of this.selectedKeys) {
+            if (!key || key === "styles_nom_Aucun_style") continue;
+            // Match with underscores to handle Shoelace's automatic space replacement
+            const style = this.allStyles.find(s => s.key.replace(/ /g, '_') === key);
+            if (style) {
+                console.log(`[Styles] Applying style: ${style.name}`);
+                if (style.prompt) {
+                    if (style.prompt.includes('{prompt}')) {
+                        finalPrompt = style.prompt.replace('{prompt}', finalPrompt);
+                    } else {
+                        // Concatenate as prefix if placeholder is missing
+                        finalPrompt = finalPrompt ? `${style.prompt}, ${finalPrompt}` : style.prompt;
+                    }
+                }
+                if (style.negative_prompt) {
+                    finalNegative = finalNegative ? `${finalNegative}, ${style.negative_prompt}` : style.negative_prompt;
+                }
+            }
+        }
+
+        console.log(`[Styles] Final Prompt: "${finalPrompt}"`);
+        return { prompt: finalPrompt, negative_prompt: finalNegative };
+    }
+
+    render() {
+        const brickId = this.getAttribute('brick-id') || '';
+        // Sanitize values for Shoelace (no spaces in sl-option values)
+        const optionsHtml = this.allStyles.map(s => `<sl-option value="${s.key.replace(/ /g, '_')}">${s.name}</sl-option>`).join('');
+
+        this.shadowRoot.innerHTML = `
+            <style>
+                .styles-container {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.8rem;
+                    padding: 0.5rem;
+                }
+                sl-select::part(listbox) {
+                    max-height: 300px;
+                }
+            </style>
+            <qp-cartridge title="Styles (Fooocus)" type="input" icon="palette" brick-id="${brickId}">
+                <div class="styles-container" id="selectors-grid">
+                    ${[0, 1, 2, 3].map(i => `
+                        <sl-select id="style-select-${i}" value="${this.selectedKeys[i]}" size="small" clearable placeholder="Select a style..." hoist>
+                            <sl-option value="">None</sl-option>
+                            ${optionsHtml}
+                        </sl-select>
+                    `).join('')}
+                    <div style="font-size: 0.7rem; color: #94a3b8; font-style: italic; margin-top: 0.2rem;">
+                        Combine up to 4 styles (nested logic).
+                    </div>
+                </div>
+            </qp-cartridge>
+        `;
+
+        [0, 1, 2, 3].forEach(i => {
+            const el = this.shadowRoot.getElementById(`style-select-${i}`);
+            el?.addEventListener('sl-change', (e) => {
+                this.selectedKeys[i] = e.target.value;
+            });
+            // Also listen for clear button
+            el?.addEventListener('sl-clear', () => {
+                this.selectedKeys[i] = "";
+            });
+        });
+    }
+}
+customElements.define('qp-styles', QpStyles);
 
 // Image-to-Prompt (Florence-2) - Refactored to use QpImageInput
 class QpImg2Prompt extends HTMLElement {
@@ -1106,6 +1806,19 @@ class QpImg2Prompt extends HTMLElement {
         }
     }
 
+    getValue() {
+        return {
+            result: this.result,
+            selectedTask: this.selectedTask
+        };
+    }
+    setValues(values) {
+        if (!values) return;
+        this.result = values.result || "";
+        this.selectedTask = values.selectedTask || "<DETAILED_CAPTION>";
+        this.render();
+    }
+
     inject() {
         const promptEl = document.querySelector('qp-prompt');
         if (promptEl && this.result) {
@@ -1120,7 +1833,7 @@ class QpImg2Prompt extends HTMLElement {
             <style>
                 .analyzer-container { display: flex; flex-direction: column; gap: 1rem; }
             </style>
-            <qp-cartridge title="Image Analysis" type="logic" brick-id="${brickId}">
+            <qp-cartridge title="Image Analysis" type="input" brick-id="${brickId}">
                 <div class="analyzer-container">
                     <sl-select id="task-select" value="${this.selectedTask}" label="Analysis Task" hoist>
                         <sl-option value="<DETAILED_CAPTION>">Detailed Caption</sl-option>

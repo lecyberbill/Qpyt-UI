@@ -8,7 +8,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.models import ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest
+from api.models import (
+    ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
+    RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest
+)
 from api.framework import QpytUI
 from core.config import config
 import core.generator as generator_lib
@@ -81,10 +84,16 @@ async def save_workflow(request: Request):
         
         file_path = WORKFLOWS_DIR / f"{safe_name}.json"
         
-        # Save current workflow
+        # Save current workflow from frontend or fallback to app_ui
+        workflow_data = data.get("workflow", app_ui.workflow)
+        
+        # Sync app_ui with this data if provided
+        if "workflow" in data:
+            app_ui.load_workflow(workflow_data)
+
         import json
         with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(app_ui.workflow, f, indent=4)
+            json.dump(workflow_data, f, indent=4)
         
         return {"status": "success", "message": f"Workflow '{safe_name}' saved."}
     except Exception as e:
@@ -110,6 +119,19 @@ async def load_workflow(request: Request):
     except Exception as e:
         logger.error(f"Error loading workflow: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.get("/styles")
+async def get_styles():
+    try:
+        styles_path = Path(config.base_dir) / "styles.json"
+        if styles_path.exists():
+            import json
+            with open(styles_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        logger.error(f"Error loading styles: {e}")
+        return []
 
 @app.get("/config")
 async def get_config():
@@ -201,7 +223,8 @@ async def generate(request: ImageGenerationRequest):
             vae_name=request.vae_name,
             sampler_name=request.sampler_name,
             image=request.image,
-            denoising_strength=request.denoising_strength
+            denoising_strength=request.denoising_strength,
+            output_format=request.output_format
         )
         
         execution_time = time.time() - start_time
@@ -214,7 +237,7 @@ async def generate(request: ImageGenerationRequest):
                 "request_id": str(uuid.uuid4()),
                 "image_url": full_image_url,
                 "execution_time": execution_time,
-                "prompt": request.prompt,
+                "metadata": used_params,
                 "status": "success"
             }
         }
@@ -240,7 +263,42 @@ async def upscale(request: UpscaleRequest):
             tile_size=request.tile_size,
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
-            model_name=request.model_name
+            model_name=request.model_name,
+            output_format=request.output_format,
+            seed=request.seed
+        )
+        
+        execution_time = time.time() - start_time
+        full_image_url = f"/view/{image_url}"
+        
+        return {
+            "status": "success",
+            "data": {
+                "request_id": str(uuid.uuid4()),
+                "image_url": full_image_url,
+                "execution_time": execution_time,
+                "metadata": used_params,
+                "status": "success"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error during upscale: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+@app.post("/rembg")
+async def rembg(request: RembgRequest):
+    logger.info("Background removal request received")
+    start_time = time.time()
+    try:
+        from core.rembg_service import remove_background
+        image_url = await run_in_threadpool(
+            remove_background,
+            image_input=request.image
         )
         
         execution_time = time.time() - start_time
@@ -256,13 +314,31 @@ async def upscale(request: UpscaleRequest):
             }
         }
     except Exception as e:
-        logger.error(f"Error during upscale: {str(e)}")
+        logger.error(f"Error during rembg: {str(e)}")
         import traceback
         traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"status": "error", "message": str(e)}
         )
+
+@app.post("/save-to-disk")
+async def save_to_disk_endpoint(request: SaveToDiskRequest):
+    try:
+        # Save operation (might involve PIL conversion, so run in threadpool)
+        from core.save_service import save_to_disk
+        dest_path = await run_in_threadpool(
+            save_to_disk, 
+            request.image_url, 
+            request.custom_path, 
+            request.pattern,
+            request.output_format,
+            request.params
+        )
+        return {"status": "success", "message": f"Saved to {dest_path}"}
+    except Exception as e:
+        logger.error(f"Save to Disk error: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...), task: str = Form("<DETAILED_CAPTION>")):

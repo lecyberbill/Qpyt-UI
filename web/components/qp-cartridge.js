@@ -42,9 +42,10 @@ class QpCartridge extends HTMLElement {
         const brickId = this.getAttribute('brick-id');
 
         const colors = {
-            input: { bg: '#1e293b', border: '#6366f1', text: '#6366f1', glow: 'rgba(99, 102, 241, 0.3)' },
-            logic: { bg: '#1e293b', border: '#a855f7', text: '#a855f7', glow: 'rgba(168, 85, 247, 0.3)' },
-            output: { bg: '#1e293b', border: '#10b981', text: '#10b981', glow: 'rgba(16, 185, 129, 0.3)' }
+            input: { bg: '#1e293b', border: '#a855f7', text: '#a855f7', glow: 'rgba(168, 85, 247, 0.3)' }, // Purple
+            generator: { bg: '#1e293b', border: '#10b981', text: '#10b981', glow: 'rgba(16, 185, 129, 0.3)' }, // Green
+            setting: { bg: '#1e293b', border: '#ef4444', text: '#ef4444', glow: 'rgba(239, 68, 68, 0.3)' }, // Red
+            output: { bg: '#1e293b', border: '#f59e0b', text: '#f59e0b', glow: 'rgba(245, 158, 11, 0.3)' }  // Orange
         };
 
         const theme = colors[type] || colors.input;

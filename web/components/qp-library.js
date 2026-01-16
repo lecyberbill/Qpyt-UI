@@ -76,14 +76,16 @@ class QpLibrary extends HTMLElement {
                     cursor: pointer; transition: all 0.2s ease; background: rgba(255, 255, 255, 0.03); color: white;
                 }
                 .brick-item:hover { background: rgba(255, 255, 255, 0.1); transform: translateY(-2px); }
-                .brick-item[data-type="input"]:hover { border-color: #6366f1; }
-                .brick-item[data-type="logic"]:hover { border-color: #a855f7; }
-                .brick-item[data-type="output"]:hover { border-color: #10b981; }
+                .brick-item[data-type="input"]:hover { border-color: #a855f7; }
+                .brick-item[data-type="generator"]:hover { border-color: #10b981; }
+                .brick-item[data-type="setting"]:hover { border-color: #ef4444; }
+                .brick-item[data-type="output"]:hover { border-color: #f59e0b; }
                 
                 .icon { font-size: 1.5rem; }
-                .brick-item[data-type="input"] .icon { color: #6366f1; }
-                .brick-item[data-type="logic"] .icon { color: #a855f7; }
-                .brick-item[data-type="output"] .icon { color: #10b981; }
+                .brick-item[data-type="input"] .icon { color: #a855f7; }
+                .brick-item[data-type="generator"] .icon { color: #10b981; }
+                .brick-item[data-type="setting"] .icon { color: #ef4444; }
+                .brick-item[data-type="output"] .icon { color: #f59e0b; }
 
                 .details { flex: 1; }
                 .details b { display: block; margin-bottom: 2px; font-size: 1rem; }
@@ -91,9 +93,10 @@ class QpLibrary extends HTMLElement {
                     font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1px; color: white; font-weight: 800; 
                     padding: 2px 6px; border-radius: 4px; display: inline-block;
                 }
-                .type-badge[data-type="input"] { background: #6366f1; }
-                .type-badge[data-type="logic"] { background: #a855f7; }
-                .type-badge[data-type="output"] { background: #10b981; }
+                .type-badge[data-type="input"] { background: #a855f7; }
+                .type-badge[data-type="generator"] { background: #10b981; }
+                .type-badge[data-type="setting"] { background: #ef4444; }
+                .type-badge[data-type="output"] { background: #f59e0b; }
                 sl-drawer:not(:defined) { display: none; }
             </style>
 
