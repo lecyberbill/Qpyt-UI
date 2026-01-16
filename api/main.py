@@ -46,7 +46,7 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 app = FastAPI(title="Qpyt-UI API")
 
 # Default Qpyt-UI configuration
-app_ui = QpytUI(title="Qpyt-UI V0.7 TURBO")
+app_ui = QpytUI(title="Qpyt-UI V0.9 TURBO")
 app_ui.add_brick("qp-prompt")
 app_ui.add_brick("qp-settings")
 app_ui.add_brick("qp-render-sdxl")
