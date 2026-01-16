@@ -1,0 +1,36 @@
+# Core
+fastapi>=0.110.0
+uvicorn>=0.29.0
+python-multipart
+aiofiles
+
+# AI / ML
+torch>=2.2.0
+torchvision>=0.17.0
+torchaudio>=2.2.0
+diffusers>=0.27.0
+transformers>=4.40.0
+accelerate>=0.29.0
+safetensors>=0.4.2
+scipy
+numpy
+
+# Image Processing
+Pillow>=10.3.0
+rembg[gpu]>=2.0.56
+opencv-python>=4.9.0
+svglib
+reportlab
+
+# Optimization
+xformers>=0.0.25
+optimum-quanto>=0.2.0
+
+# NLP & Utilities
+sentencepiece
+protobuf
+requests
+watchfiles
+
+# Optional (for future features)
+bitsandbytes>=0.43.0
