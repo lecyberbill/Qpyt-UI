@@ -1,0 +1,2 @@
+Init Image Size: 640x640
+Original Req: not-captured-here

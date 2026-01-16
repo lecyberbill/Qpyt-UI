@@ -45,8 +45,12 @@ class QpytApp {
         if (!trigger || !drawer) return;
 
         trigger.addEventListener('click', () => {
-            this.fetchWorkflows();
-            drawer.show();
+            if (drawer.open) {
+                drawer.hide();
+            } else {
+                this.fetchWorkflows();
+                drawer.show();
+            }
         });
 
         closeBtn?.addEventListener('click', () => drawer.hide());
@@ -102,10 +106,34 @@ class QpytApp {
                     <sl-icon name="journal-bookmark" style="color: #6366f1;"></sl-icon>
                     <span style="flex: 1; font-size: 0.9rem;">${name}</span>
                     <sl-button size="small" variant="neutral" onclick="window.qpyt_app.loadWorkflow('${name}')">Load</sl-button>
+                    <sl-button size="small" variant="danger" outline onclick="window.qpyt_app.deleteWorkflow('${name}')" title="Delete">
+                        <sl-icon name="trash"></sl-icon>
+                    </sl-button>
                 </div>
             `).join('');
         } catch (e) {
             listContainer.innerHTML = '<p style="color: #ef4444;">Failed to load list.</p>';
+        }
+    }
+
+    async deleteWorkflow(name) {
+        if (!confirm(`Are you sure you want to delete workflow '${name}'?`)) return;
+
+        try {
+            const response = await fetch('/workflows/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.notify(`Workflow '${name}' deleted.`, "success");
+                this.fetchWorkflows();
+            } else {
+                this.notify(result.message, "danger");
+            }
+        } catch (e) {
+            this.notify("Deletion failed", "danger");
         }
     }
 
@@ -151,7 +179,10 @@ class QpytApp {
             if (el) el.value = value || '';
         });
 
-        trigger.addEventListener('click', () => drawer.show());
+        trigger.addEventListener('click', () => {
+            if (drawer.open) drawer.hide();
+            else drawer.show();
+        });
         closeBtn?.addEventListener('click', () => drawer.hide());
 
         saveBtn?.addEventListener('click', async () => {

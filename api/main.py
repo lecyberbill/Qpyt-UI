@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
-    RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest
+    RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest
 )
 from api.framework import QpytUI
 from core.config import config
@@ -19,6 +19,7 @@ from core.generator import list_models, ModelManager, list_vaes, list_samplers
 import core.analyzer as analyzer_lib
 from core.translator import TranslationManager
 from core.llm_prompter import LlmPrompterManager
+from core.filters import ImageEditor
 from starlette.concurrency import run_in_threadpool
 from fastapi import UploadFile, File, Form
 from PIL import Image
@@ -118,6 +119,22 @@ async def load_workflow(request: Request):
         return {"status": "success", "workflow": app_ui.workflow}
     except Exception as e:
         logger.error(f"Error loading workflow: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/workflows/delete")
+async def delete_workflow(request: Request):
+    try:
+        data = await request.json()
+        name = data.get("name")
+        file_path = WORKFLOWS_DIR / f"{name}.json"
+        
+        if not file_path.exists():
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Workflow not found."})
+            
+        file_path.unlink()
+        return {"status": "success", "message": f"Workflow '{name}' deleted."}
+    except Exception as e:
+        logger.error(f"Error deleting workflow: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.get("/styles")
@@ -250,7 +267,55 @@ async def generate(request: ImageGenerationRequest):
             content={"status": "error", "message": str(e)}
         )
 
-@app.post("/upscale")
+@app.post("/inpaint")
+async def inpaint(req: InpaintRequest):
+    logger.info(f"Inpaint request received ({req.model_type}): {req.prompt}")
+    logger.info(f"Mask length: {len(req.mask) if req.mask else 0}, Image length: {len(req.image) if req.image else 0}")
+    request_id = uuid.uuid4()
+    start_time = time.time()
+    try:
+        url, exec_time, params = await run_in_threadpool(
+            ModelManager.generate,
+            prompt=req.prompt,
+            negative_prompt=req.negative_prompt,
+            model_type=req.model_type,
+            model_name=req.model_name,
+            width=req.width,
+            height=req.height,
+            guidance_scale=req.guidance_scale,
+            num_inference_steps=req.num_inference_steps,
+            seed=req.seed,
+            vae_name=req.vae_name,
+            sampler_name=req.sampler_name,
+            image=req.image,
+            mask=req.mask,
+            denoising_strength=req.denoising_strength,
+            output_format=req.output_format
+        )
+        if url is None:
+            return JSONResponse({"status": "error", "message": "Generation interrupted or failed"}, status_code=400)
+            
+        execution_time = time.time() - start_time
+        return {
+            "status": "success",
+            "data": {
+                "request_id": str(request_id),
+                "image_url": f"/view/{url}",
+                "execution_time": execution_time,
+                "metadata": params,
+                "status": "success"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Inpaint error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+@app.post("/outpaint")
+async def outpaint(req: OutpaintRequest):
+    logger.info(f"Outpaint request received: {req.prompt}")
+    return await inpaint(req)
 async def upscale(request: UpscaleRequest):
     logger.info(f"Upscale request received: {request.scale_factor}x")
     start_time = time.time()
@@ -403,3 +468,41 @@ async def get_logs():
         with open("logs/app.log", "r") as f:
             return {"logs": f.readlines()}
     return {"logs": []}
+
+@app.post("/filter")
+async def apply_filters(req: FilterRequest):
+    try:
+        # Decode input
+        if "," in req.image:
+            header, encoded = req.image.split(",", 1)
+        else:
+            header, encoded = "data:image/png;base64", req.image
+            
+        import base64
+        # Validate base64
+        try:
+            image_data = base64.b64decode(encoded)
+        except Exception:
+             return JSONResponse({"status": "error", "message": "Invalid Base64 string"}, status_code=400)
+
+        pil_image = Image.open(io.BytesIO(image_data))
+        
+        def processing_task(img, settings):
+            editor = ImageEditor(img)
+            res_img = editor.apply_filters(settings)
+            
+            # Encode back to base64
+            buffered = io.BytesIO()
+            res_img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            return f"data:image/png;base64,{img_str}"
+
+        # Run in thread to not block async loop
+        result_b64 = await run_in_threadpool(processing_task, pil_image, req.settings)
+        
+        return {"status": "success", "image": result_b64}
+
+    except Exception as e:
+        logger.error(f"Filter error: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+

@@ -5,22 +5,38 @@ from PIL import Image
 from core.config import config
 import uuid
 from datetime import datetime
+import base64
+import io
 
 def save_to_disk(image_url: str, custom_path: str, pattern: str, output_format: str = "png", params: dict = None) -> str:
     """
     Saves or converts an existing image from the output directory to a custom disk location
-    with a specific filename pattern and format.
+    with a specific filename pattern and format. 
+    Supports local paths and Base64 Data URIs.
     """
     if params is None:
         params = {}
 
-    # 1. Resolve source image
-    # image_url is like /view/2026-01-16/file.png
-    rel_path = image_url.replace("/view/", "").lstrip("/")
-    source_path = Path(config.OUTPUT_DIR) / rel_path
+    img = None
     
-    if not source_path.exists():
-        raise FileNotFoundError(f"Source image not found: {source_path}")
+    # 1. Resolve source image (Base64 or File Path)
+    if image_url.startswith("data:image"):
+        try:
+            # Decode Base64
+            _, encoded = image_url.split(",", 1)
+            data = base64.b64decode(encoded)
+            img = Image.open(io.BytesIO(data))
+        except Exception as e:
+            raise ValueError(f"Invalid Base64 image data: {e}")
+    else:
+        # Resolve from output dir
+        rel_path = image_url.replace("/view/", "").lstrip("/")
+        source_path = Path(config.OUTPUT_DIR) / rel_path
+        
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source image not found: {source_path}")
+        
+        img = Image.open(source_path)
 
     # 2. Prepare target directory
     target_dir = Path(custom_path)
@@ -55,7 +71,7 @@ def save_to_disk(image_url: str, custom_path: str, pattern: str, output_format: 
     target_path = target_dir / filename
     
     # 4. Save/Convert
-    img = Image.open(source_path)
+    # img is already loaded from Step 1
     
     # Handle RGB conversion for JPEG if source has Alpha
     if output_format.lower() in ["jpg", "jpeg"] and img.mode in ("RGBA", "P"):

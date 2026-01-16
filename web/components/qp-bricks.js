@@ -274,6 +274,7 @@ class QpSettings extends HTMLElement {
                     
                     <sl-select id="format-select" label="Image Dimensions" value="${this.selectedDimension}" hoist @sl-change="${e => this.handleFormatChange(e)}">
                         ${this.formats.map(f => `<sl-option value="${f.dimensions}">${f.orientation}: ${f.dimensions}</sl-option>`).join('')}
+                        ${!this.formats.some(f => f.dimensions === this.selectedDimension) ? `<sl-option value="${this.selectedDimension}">Custom: ${this.selectedDimension}</sl-option>` : ''}
                     </sl-select>
 
                     <sl-input id="gs-input" type="number" step="0.1" label="Guidance Scale" value="7.0"></sl-input>
@@ -430,11 +431,27 @@ class QpRender extends HTMLElement {
 
         const settings = settingsEl ? settingsEl.getValue() : {};
         const { batch_count = 1, ...genSettings } = settings;
+        let successCount = 0;
 
         // Img2Img specific - Only send image if this is a dedicated Img2Img brick
         const imageSource = document.querySelector('qp-image-input');
-        const isImg2ImgBrick = this.tagName === 'QP-IMG2IMG';
+        const isImg2ImgBrick = this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT';
         const image = isImg2ImgBrick ? (imageSource?.getImage() || null) : null;
+
+        if (isImg2ImgBrick && !image) {
+            window.qpyt_app.notify("Missing source image! Please upload an image to the 'Source Image' brick first.", "warning");
+            return;
+        }
+
+        const isInpaint = this.tagName === 'QP-INPAINT';
+        const isOutpaint = this.tagName === 'QP-OUTPAINT';
+        let mask = null;
+        if (isInpaint || isOutpaint) {
+            mask = typeof this.getMask === 'function' ? this.getMask() : null;
+            // Debug mask length
+            if (mask) console.log("[Inpaint] Mask captured, length:", mask.length);
+            else console.log("[Inpaint] No mask captured!");
+        }
 
         this.isGenerating = true;
         this.hasRendered = false; // Force re-render for generating state
@@ -454,7 +471,11 @@ class QpRender extends HTMLElement {
                 this.batchInfo = batch_count > 1 ? ` (${i + 1}/${batch_count})` : '';
                 this.updateStatus();
 
-                const response = await fetch('/generate', {
+                const endpoint = isInpaint ? '/inpaint' : (isOutpaint ? '/outpaint' : '/generate');
+
+                // Mask is already captured above
+
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -465,7 +486,8 @@ class QpRender extends HTMLElement {
                         sampler_name: this.selectedSampler,
                         vae_name: this.selectedVae || null,
                         image: image,
-                        denoising_strength: image ? this.denoisingStrength : undefined,
+                        mask: mask,
+                        denoising_strength: (image || mask) ? this.denoisingStrength : undefined,
                         ...genSettings,
                         seed: genSettings.seed ? genSettings.seed + i : null,
                         output_format: genSettings.output_format
@@ -473,7 +495,9 @@ class QpRender extends HTMLElement {
                 });
 
                 const result = await response.json();
+                console.log("[Generate] Response:", result);
                 if (result.status === 'success') {
+                    successCount++;
                     this.lastImageUrl = result.data.image_url;
                     if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
 
@@ -501,7 +525,9 @@ class QpRender extends HTMLElement {
                     break;
                 }
             }
-            window.qpyt_app.notify("Generation complete", "success");
+            if (successCount > 0) {
+                window.qpyt_app.notify("Generation complete", "success");
+            }
         } catch (e) {
             console.error(e);
             window.qpyt_app.notify("Connection error", "danger");
@@ -606,7 +632,7 @@ class QpRender extends HTMLElement {
             'sd3': 'SD3.5 Generator',
             'sd3_5_turbo': 'SD3.5 Turbo (Lightning)'
         };
-        const title = titleMap[this.modelType] || 'Generator';
+        const title = this.title || titleMap[this.modelType] || 'Generator';
         const brickId = this.getAttribute('brick-id') || '';
 
         this.shadowRoot.innerHTML = `
@@ -676,11 +702,11 @@ class QpRender extends HTMLElement {
                     </div>
                     ` : ''}
 
-                    ${(this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-UPSCALER') ? `
+                    ${(this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-UPSCALER' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT') ? `
                         <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 0.8rem; border: 1px solid rgba(16, 185, 129, 0.2); margin-top: 1rem; width: 100%; box-sizing: border-box;">
                             <div style="display: flex; align-items: center; gap: 0.5rem; color: #10b981; font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem;">
                                 <sl-icon name="${this.tagName === 'QP-UPSCALER' ? 'aspect-ratio' : 'magic'}"></sl-icon> 
-                                ${this.tagName === 'QP-UPSCALER' ? 'Upscale Influence (Denoising)' : 'Transformation Strength'}
+                                ${this.tagName === 'QP-UPSCALER' ? 'Upscale Influence (Denoising)' : (this.tagName.includes('PAINT') ? 'Inpainting Strength' : 'Transformation Strength')}
                             </div>
                             <input type="range" id="denoising-slider" min="0" max="1" step="0.01" value="${this.denoisingStrength}" 
                                 style="width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); appearance: none; cursor: pointer; outline: none;">
@@ -853,6 +879,705 @@ class QpImg2Img extends QpRender {
     }
 }
 customElements.define('qp-img2img', QpImg2Img);
+
+// Inpainting / Outpainting Brick
+class QpInpaint extends QpRender {
+    constructor() {
+        super('sdxl');
+        this.title = "Inpainting";
+        this.icon = "brush";
+        this.brushSize = 40;
+        this.isDrawing = false;
+        this.denoisingStrength = 0.9;
+        this.ctx = null;
+        this.maskCanvas = null;
+        this.savedMaskData = null;
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        this._onImageChanged = (e) => this.syncWithSourceImage(e.detail?.base64);
+        window.addEventListener('image-changed', this._onImageChanged);
+    }
+
+    disconnectedCallback() {
+        if (this._onImageChanged) {
+            window.removeEventListener('image-changed', this._onImageChanged);
+        }
+    }
+
+    syncWithSourceImage(imgData = null) {
+        if (!imgData) {
+            const src = document.querySelector('qp-image-input');
+            imgData = src?.getImage();
+        }
+        if (!imgData) return;
+
+        const previewBox = this.shadowRoot.getElementById('preview-box');
+        const editorBg = this.shadowRoot.getElementById('editor-bg');
+        if (previewBox) previewBox.style.backgroundImage = `url(${imgData})`;
+        if (editorBg) editorBg.src = imgData;
+
+        const tempImg = new Image();
+        tempImg.onload = () => {
+            const ratio = tempImg.naturalWidth / tempImg.naturalHeight;
+            if (previewBox) {
+                previewBox.style.aspectRatio = ratio.toString();
+                previewBox.style.maxHeight = "400px";
+            }
+            const settingsBrick = document.querySelector('qp-settings');
+            if (settingsBrick) {
+                settingsBrick.setValues({
+                    width: tempImg.naturalWidth,
+                    height: tempImg.naturalHeight
+                });
+            }
+            this.syncEditorSize();
+        };
+        tempImg.src = imgData;
+    }
+
+    syncEditorSize() {
+        const editorBg = this.shadowRoot.getElementById('editor-bg');
+        const wrapper = this.shadowRoot.getElementById('canvas-wrapper');
+        const canvas = this.maskCanvas || this.shadowRoot.getElementById('mask-canvas');
+        if (!canvas || !editorBg) return;
+
+        if (!editorBg.complete || editorBg.naturalWidth === 0) {
+            setTimeout(() => this.syncEditorSize(), 100);
+            return;
+        }
+
+        const w = editorBg.clientWidth;
+        const h = editorBg.clientHeight;
+        if (w === 0 || h === 0) {
+            setTimeout(() => this.syncEditorSize(), 200);
+            return;
+        }
+
+        if (canvas.width !== w || canvas.height !== h) {
+            const temp = document.createElement('canvas');
+            temp.width = canvas.width;
+            temp.height = canvas.height;
+            if (canvas.width > 0 && canvas.height > 0) {
+                temp.getContext('2d').drawImage(canvas, 0, 0);
+            }
+
+            canvas.width = w;
+            canvas.height = h;
+            if (wrapper) {
+                wrapper.style.width = w + 'px';
+                wrapper.style.height = h + 'px';
+            }
+
+            this.ctx = canvas.getContext('2d', { willReadFrequently: true });
+            this.ctx.lineJoin = 'round';
+            this.ctx.lineCap = 'round';
+            this.ctx.strokeStyle = 'white';
+            this.ctx.lineWidth = this.brushSize;
+
+            this.ctx.fillStyle = 'black';
+            this.ctx.fillRect(0, 0, w, h);
+
+            if (temp.width > 0) {
+                this.ctx.drawImage(temp, 0, 0, w, h);
+            } else if (this.savedMaskData) {
+                const img = new Image();
+                img.onload = () => this.ctx.drawImage(img, 0, 0, w, h);
+                img.src = this.savedMaskData;
+            }
+        }
+    }
+
+    getMask() {
+        if (!this.maskCanvas) return this.savedMaskData || null;
+        return this.maskCanvas.toDataURL('image/png');
+    }
+
+    clearMask() {
+        if (!this.ctx) return;
+        this.ctx.fillStyle = 'black';
+        this.ctx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+    }
+
+    render() {
+        if (this.maskCanvas && this.maskCanvas.width > 0) {
+            this.savedMaskData = this.maskCanvas.toDataURL();
+        }
+
+        super.render();
+
+        const renderContainer = this.shadowRoot.querySelector('.render-container');
+        if (!renderContainer) return;
+
+        // 1. Brick UI (inside the cartridge)
+        if (!this.shadowRoot.querySelector('.inpaint-ui')) {
+            const canvasUI = document.createElement('div');
+            canvasUI.className = 'inpaint-ui';
+            canvasUI.innerHTML = `
+                <style>
+                    .inpaint-ui {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        margin-bottom: 20px;
+                        width: 100%;
+                    }
+                    .preview-wrapper {
+                        position: relative;
+                        width: 100%;
+                        background: #020617;
+                        border-radius: 12px;
+                        border: 1px solid rgba(255,255,255,0.1);
+                        overflow: hidden;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        min-height: 150px;
+                        background-size: contain;
+                        background-repeat: no-repeat;
+                        background-position: center;
+                        box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+                    }
+                    .mask-thumb {
+                        position: absolute;
+                        inset: 0;
+                        width: 100%;
+                        height: 100%;
+                        object-fit: contain;
+                        opacity: 0.7;
+                        mix-blend-mode: screen;
+                        pointer-events: none;
+                        filter: drop-shadow(0 0 5px rgba(255,255,255,0.3));
+                    }
+                </style>
+                <div class="preview-wrapper" id="preview-box">
+                    <img class="mask-thumb" id="mask-thumb" src="${this.savedMaskData || ''}" style="${this.savedMaskData ? '' : 'display:none'}" />
+                </div>
+                <sl-button variant="primary" id="open-editor-btn" size="medium" style="width: 100%; margin-top: 4px;">
+                    <sl-icon slot="prefix" name="brush"></sl-icon> Edit Inpaint Mask
+                </sl-button>
+            `;
+            renderContainer.prepend(canvasUI);
+        }
+
+        // 2. Global Dialog (outside the cartridge to avoid overflow:hidden)
+        if (!this.shadowRoot.querySelector('.editor-dialog')) {
+            const dialogContainer = document.createElement('div');
+            dialogContainer.innerHTML = `
+                <style>
+                    .editor-dialog {
+                        --sl-z-index-dialog: 10001;
+                    }
+                    .editor-dialog::part(panel) {
+                        width: 100vw;
+                        height: 100vh;
+                        max-width: none;
+                        max-height: none;
+                        background: #020617;
+                        border: none;
+                        border-radius: 0;
+                        position: fixed;
+                        inset: 0;
+                    }
+                    .editor-dialog::part(overlay) {
+                        backdrop-filter: blur(8px);
+                        background-color: rgba(0, 0, 0, 0.85);
+                    }
+                    .editor-body {
+                        display: flex;
+                        flex-direction: column;
+                        height: calc(100vh - 80px);
+                        gap: 16px;
+                        padding: 0;
+                    }
+                    .main-canvas-container {
+                        flex: 1;
+                        position: relative;
+                        background: #000;
+                        overflow: auto;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    .canvas-wrapper {
+                        position: relative;
+                        margin: auto;
+                        box-shadow: 0 0 50px rgba(0,0,0,1);
+                    }
+                    #mask-canvas {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        touch-action: none;
+                        mix-blend-mode: screen;
+                        opacity: 0.8;
+                        cursor: crosshair;
+                        z-index: 10;
+                    }
+                    #editor-bg {
+                        display: block;
+                        max-width: 95vw;
+                        max-height: 85vh;
+                        object-fit: contain;
+                        z-index: 5;
+                        user-select: none;
+                        pointer-events: none;
+                    }
+                    .editor-controls {
+                        display: flex;
+                        align-items: center;
+                        gap: 24px;
+                        padding: 16px 32px;
+                        background: #0f172a;
+                        border-top: 1px solid rgba(255,255,255,0.1);
+                    }
+                    .brush-label {
+                        font-size: 0.7rem;
+                        color: #94a3b8;
+                        font-weight: 700;
+                        letter-spacing: 0.05em;
+                        text-transform: uppercase;
+                        min-width: 120px;
+                    }
+                </style>
+                <sl-dialog label="Fullscreen Mask Editor" class="editor-dialog" id="editor-dialog">
+                    <div class="editor-body">
+                        <div class="main-canvas-container">
+                            <div class="canvas-wrapper" id="canvas-wrapper">
+                                <img id="editor-bg" />
+                                <canvas id="mask-canvas"></canvas>
+                            </div>
+                        </div>
+                        <div class="editor-controls">
+                            <div class="brush-label">Brush Size: ${this.brushSize}px</div>
+                            <sl-range value="${this.brushSize}" min="2" max="300" step="1" id="brush-range" style="width: 200px;"></sl-range>
+                            <sl-button variant="neutral" outline id="clear-btn">
+                                <sl-icon slot="prefix" name="trash"></sl-icon> Clear
+                            </sl-button>
+                            <div style="flex:1"></div>
+                            <sl-button variant="success" id="close-editor-btn" size="large">
+                                <sl-icon slot="prefix" name="check-lg"></sl-icon> Done
+                            </sl-button>
+                        </div>
+                    </div>
+                </sl-dialog>
+            `;
+            this.shadowRoot.appendChild(dialogContainer);
+        }
+
+        const dialog = this.shadowRoot.getElementById('editor-dialog');
+        const openBtn = this.shadowRoot.getElementById('open-editor-btn');
+        const doneBtn = this.shadowRoot.getElementById('close-editor-btn');
+        const editorBg = this.shadowRoot.getElementById('editor-bg');
+        const brushRange = this.shadowRoot.getElementById('brush-range');
+        const clearBtn = this.shadowRoot.getElementById('clear-btn');
+        const maskThumb = this.shadowRoot.getElementById('mask-thumb');
+        this.maskCanvas = this.shadowRoot.getElementById('mask-canvas');
+
+        this.syncWithSourceImage();
+
+        openBtn.onclick = () => {
+            this.syncWithSourceImage();
+            dialog.show();
+            setTimeout(() => this.syncEditorSize(), 300);
+        };
+
+        doneBtn.onclick = () => {
+            if (this.maskCanvas) {
+                this.savedMaskData = this.maskCanvas.toDataURL();
+                if (maskThumb) {
+                    maskThumb.src = this.savedMaskData;
+                    maskThumb.style.display = 'block';
+                }
+            }
+            dialog.hide();
+        };
+
+        editorBg.onload = () => this.syncEditorSize();
+
+        // Remove old listeners if any to avoid stacking
+        brushRange.oninput = (e) => {
+            this.brushSize = e.target.value;
+            const label = this.shadowRoot.querySelector('.brush-label');
+            if (label) label.textContent = `Brush Size: ${this.brushSize}px`;
+            if (this.ctx) this.ctx.lineWidth = this.brushSize;
+        };
+
+        clearBtn.onclick = () => this.clearMask();
+
+        // Ensure brush range shows current value
+        if (brushRange) brushRange.value = this.brushSize;
+
+        const getCoords = (e) => {
+            const rect = this.maskCanvas.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left) * (this.maskCanvas.width / rect.width),
+                y: (e.clientY - rect.top) * (this.maskCanvas.height / rect.height)
+            };
+        };
+
+        this.maskCanvas.onpointerdown = (e) => {
+            this.isDrawing = true;
+            const { x, y } = getCoords(e);
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, y);
+            this.draw(e);
+        };
+
+        this.maskCanvas.onpointermove = (e) => {
+            if (this.isDrawing) this.draw(e);
+        };
+
+        window.onpointerup = () => {
+            this.isDrawing = false;
+            if (this.ctx) this.ctx.beginPath();
+        };
+    }
+
+    draw(e) {
+        if (!this.ctx || !this.isDrawing) return;
+        const rect = this.maskCanvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (this.maskCanvas.width / rect.width);
+        const y = (e.clientY - rect.top) * (this.maskCanvas.height / rect.height);
+        this.ctx.lineTo(x, y);
+        this.ctx.stroke();
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, y);
+    }
+}
+
+customElements.define('qp-inpaint', QpInpaint);
+
+class QpOutpaint extends QpRender {
+    constructor() {
+        super('sdxl');
+        this.title = "Outpainting";
+        this.icon = "arrows-angle-expand";
+        this.expandTop = 0;
+        this.expandBottom = 0;
+        this.expandLeft = 0;
+        this.expandRight = 0;
+        this.step = 64;
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        // Listen for image availability to update preview
+        window.addEventListener('image-changed', () => this.render());
+
+        // Polling retry for initial load (in case source loads slower)
+        if (!this.checkSrc()) {
+            this.imgCheck = setInterval(() => {
+                if (this.checkSrc()) {
+                    clearInterval(this.imgCheck);
+                    this.imgCheck = null;
+                    this.hasRendered = false;
+                    this.render();
+                }
+            }, 500);
+        }
+    }
+
+    disconnectedCallback() {
+        if (this.imgCheck) clearInterval(this.imgCheck);
+        super.disconnectedCallback();
+    }
+
+    checkSrc() {
+        const imageSource = document.querySelector('qp-image-input');
+        return imageSource?.getImage() || window.qpyt_app?.lastImage;
+    }
+
+    getExpandedDims(w, h) {
+        return {
+            width: w + this.expandLeft + this.expandRight,
+            height: h + this.expandTop + this.expandBottom
+        };
+    }
+
+    async generate() {
+        if (this.isGenerating || !window.qpyt_app) return;
+
+        const imageSource = document.querySelector('qp-image-input');
+        let srcBase64 = imageSource?.getImage() || null;
+        if (!srcBase64 && window.qpyt_app.lastImage) {
+            srcBase64 = window.qpyt_app.lastImage; // Auto-pick last
+        }
+
+        if (!srcBase64) {
+            window.qpyt_app.notify("Outpainting needs a source image!", "warning");
+            return;
+        }
+
+        // Check expansion
+        if (this.expandTop === 0 && this.expandBottom === 0 && this.expandLeft === 0 && this.expandRight === 0) {
+            window.qpyt_app.notify("Please set at least one expansion value > 0", "warning");
+            return;
+        }
+
+        this.isGenerating = true;
+        this.hasRendered = false;
+        this.render();
+
+        try {
+            // Prepared Payload
+            const { image, mask, width, height } = await this.preparePayload(srcBase64);
+
+            // Standard Gather Params
+            const promptEl = document.querySelector('qp-prompt');
+            const settingsEl = document.querySelector('qp-settings');
+            const { prompt, negative_prompt } = promptEl ? promptEl.getValue() : { prompt: "", negative_prompt: "" };
+            const settings = settingsEl ? settingsEl.getValue() : {};
+
+            console.log(`[Outpaint] Sending request: ${width}x${height}`);
+
+            // Force Denoising Strength to 1.0 for Outpainting
+            // We are generating 100% new content in the masked areas (which are flat grey).
+            // Any value < 1.0 will try to "preserve" the grey color.
+            const forceStrength = 1.0;
+
+            const response = await fetch('/inpaint', { // Re-use inpaint endpoint
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt,
+                    negative_prompt,
+                    model_type: this.modelType,
+                    model_name: this.selectedModel,
+                    image: image,
+                    mask: mask,
+                    width: width,
+                    height: height,
+                    ...settings,
+                    denoising_strength: forceStrength
+                })
+            });
+
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.lastImageUrl = result.data.image_url;
+                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+                // Signal global output
+                window.dispatchEvent(new CustomEvent('qpyt-output', {
+                    detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                    bubbles: true,
+                    composed: true
+                }));
+                window.qpyt_app.notify("Outpainting complete!", "success");
+            } else {
+                window.qpyt_app.notify(`Error: ${result.message}`, "danger");
+            }
+
+        } catch (e) {
+            console.error(e);
+            window.qpyt_app.notify("Outpainting failed", "danger");
+        } finally {
+            this.isGenerating = false;
+            this.hasRendered = false;
+            this.render();
+        }
+    }
+
+    preparePayload(srcBase64) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const w = img.width;
+                const h = img.height;
+                const newW = w + this.expandLeft + this.expandRight;
+                const newH = h + this.expandTop + this.expandBottom;
+
+                // 1. Create Expanded Image Canvas
+                const imgCanvas = document.createElement('canvas');
+                imgCanvas.width = newW;
+                imgCanvas.height = newH;
+                const ctx = imgCanvas.getContext('2d');
+
+                // Fill with neutral grey for new areas (helps diffusion start)
+                ctx.fillStyle = "#808080";
+                ctx.fillRect(0, 0, newW, newH);
+
+                // Draw source image in center/offset
+                ctx.drawImage(img, this.expandLeft, this.expandTop);
+
+                const finalImageBase64 = imgCanvas.toDataURL('image/png');
+
+                // 2. Create Mask Canvas
+                const maskCanvas = document.createElement('canvas');
+                maskCanvas.width = newW;
+                maskCanvas.height = newH;
+                const mCtx = maskCanvas.getContext('2d');
+
+                // Fill White (Inpaint Area)
+                mCtx.fillStyle = "white";
+                mCtx.fillRect(0, 0, newW, newH);
+
+                // Draw Black Rect (Protected Area)
+                mCtx.fillStyle = "black";
+                mCtx.fillRect(this.expandLeft, this.expandTop, w, h);
+
+                const finalMaskBase64 = maskCanvas.toDataURL('image/png');
+
+                resolve({
+                    image: finalImageBase64,
+                    mask: finalMaskBase64,
+                    width: newW,
+                    height: newH
+                });
+            };
+            img.src = srcBase64;
+        });
+    }
+
+    render() {
+        if (this.hasRendered) return;
+        this.hasRendered = true;
+
+        const brickId = this.getAttribute('brick-id') || '';
+
+        // Compute preview dims if image available
+        const srcImg = this.checkSrc();
+        const hasImage = !!srcImg;
+
+        this.shadowRoot.innerHTML = `
+            <style>
+                .exp-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 1rem;
+                    margin-top: 1rem;
+                }
+                .preview-zone {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #0f172a;
+                    border: 1px dashed #334155;
+                    border-radius: 8px;
+                    padding: 1rem;
+                    min-height: 200px;
+                    position: relative;
+                }
+                .box-center {
+                    width: 60px; height: 60px;
+                    background: #475569;
+                    display: flex; align-items: center; justify-content: center;
+                    color: white; font-size: 0.8rem;
+                    border: 1px solid #94a3b8;
+                    position: relative;
+                    z-index: 2;
+                }
+                .indicator {
+                    position: absolute;
+                    background: rgba(16, 185, 129, 0.2);
+                    border: 1px solid rgba(16, 185, 129, 0.5);
+                    display: flex; align-items: center; justify-content: center;
+                    font-size: 0.7rem; color: #10b981;
+                }
+                .vis-top { bottom: 100%; left: 0; right: 0; height: ${this.expandTop / 2}px; }
+                .vis-btm { top: 100%; left: 0; right: 0; height: ${this.expandBottom / 2}px; }
+                .vis-left { right: 100%; top: 0; bottom: 0; width: ${this.expandLeft / 2}px; }
+                .vis-right { left: 100%; top: 0; bottom: 0; width: ${this.expandRight / 2}px; }
+
+                /* Native Range Styling */
+                .range-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.2rem;
+                }
+                .range-label {
+                    font-size: 0.8rem;
+                    color: #cbd5e1;
+                    display: flex;
+                    justify-content: space-between;
+                }
+                input[type=range] {
+                    width: 100%;
+                    accent-color: #3b82f6;
+                }
+            </style>
+            <qp-cartridge title="${this.title}" icon="${this.icon}" type="generator" brick-id="${brickId}">
+                <div style="padding: 0.5rem; display: flex; flex-direction: column; gap: 1rem;">
+                    
+                    <sl-select size="small" placeholder="Select Model" value="${this.selectedModel}" id="model-select" hoist>
+                         ${this.models.length > 0
+                ? this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')
+                : `<sl-option value="" disabled>Loading models...</sl-option>`
+            }
+                    </sl-select>
+
+                    ${!hasImage ? `<div style="color:orange; font-size:0.9rem;">⚠️ No source image found</div>` : ''}
+
+                    <div class="preview-zone">
+                        <div class="box-center">
+                            IMG
+                            <div class="indicator vis-top">${this.expandTop}</div>
+                            <div class="indicator vis-btm">${this.expandBottom}</div>
+                            <div class="indicator vis-left">${this.expandLeft}</div>
+                            <div class="indicator vis-right">${this.expandRight}</div>
+                        </div>
+                    </div>
+
+                    <div class="exp-grid">
+                        <div class="range-group">
+                            <div class="range-label"><span>Top</span> <span>${this.expandTop}px</span></div>
+                            <input type="range" min="0" max="512" step="64" value="${this.expandTop}" id="r-top">
+                        </div>
+                        <div class="range-group">
+                            <div class="range-label"><span>Bottom</span> <span>${this.expandBottom}px</span></div>
+                            <input type="range" min="0" max="512" step="64" value="${this.expandBottom}" id="r-btm">
+                        </div>
+                        <div class="range-group">
+                            <div class="range-label"><span>Left</span> <span>${this.expandLeft}px</span></div>
+                            <input type="range" min="0" max="512" step="64" value="${this.expandLeft}" id="r-left">
+                        </div>
+                        <div class="range-group">
+                            <div class="range-label"><span>Right</span> <span>${this.expandRight}px</span></div>
+                            <input type="range" min="0" max="512" step="64" value="${this.expandRight}" id="r-right">
+                        </div>
+                    </div>
+
+                    <sl-button variant="primary" size="medium" style="width:100%" id="btn-gen" ?loading="${this.isGenerating}">
+                        <sl-icon slot="prefix" name="arrows-angle-expand"></sl-icon>
+                        Outpaint
+                    </sl-button>
+                </div>
+            </qp-cartridge>
+        `;
+
+        const bind = (id, prop) => {
+            const el = this.shadowRoot.getElementById(id);
+            // Native input event is 'input' or 'change'
+            if (el) {
+                el.addEventListener('input', (e) => {
+                    this[prop] = parseInt(e.target.value);
+                    // Minimal manual update of label to avoid full re-render on slide
+                    // But for now full re-render is safer for the preview box update
+                    this.hasRendered = false;
+                    this.render();
+                });
+            }
+        };
+        bind('r-top', 'expandTop');
+        bind('r-btm', 'expandBottom');
+        bind('r-left', 'expandLeft');
+        bind('r-right', 'expandRight');
+
+        // Bind Model Select
+        const modelSel = this.shadowRoot.getElementById('model-select');
+        if (modelSel) {
+            modelSel.addEventListener('sl-change', (e) => {
+                this.selectedModel = e.target.value;
+            });
+        }
+
+        this.shadowRoot.getElementById('btn-gen').onclick = () => this.generate();
+    }
+}
+customElements.define('qp-outpaint', QpOutpaint);
 
 // Tiled Upscaler Brick
 class QpUpscaler extends QpRender {

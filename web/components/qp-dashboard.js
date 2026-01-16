@@ -203,8 +203,6 @@ class QpDashboard extends HTMLElement {
                         </div>
                     `).join('')}
                 </div>
-                <div slot="footer">
-                    <sl-button variant="neutral" outline id="close-dash" style="width: 100%;">Close</sl-button>
                 </div>
             </sl-drawer>
 
@@ -214,13 +212,21 @@ class QpDashboard extends HTMLElement {
             </sl-dialog>
         `;
 
-        this.shadowRoot.getElementById('open-dash').addEventListener('click', () => this.toggleDrawer(true));
-        this.shadowRoot.getElementById('close-dash')?.addEventListener('click', () => this.toggleDrawer(false));
-        this.shadowRoot.getElementById('close-lightbox')?.addEventListener('click', () => this.shadowRoot.getElementById('lightbox').hide());
+        this.shadowRoot.getElementById('open-dash').addEventListener('click', () => this.toggleDrawer());
+    }
 
-        this.shadowRoot.querySelectorAll('.history-thumb').forEach(img => {
-            img.addEventListener('click', () => this.openLightbox(img.dataset.url));
-        });
+    toggleDrawer(open) {
+        const drawer = this.shadowRoot.querySelector('sl-drawer');
+        if (drawer) {
+            if (open === undefined) {
+                // Toggle logic
+                if (drawer.open) drawer.hide();
+                else drawer.show();
+            } else {
+                if (open) drawer.show();
+                else drawer.hide();
+            }
+        }
     }
 }
 

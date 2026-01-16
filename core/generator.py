@@ -167,8 +167,9 @@ class ModelManager:
             # Check if we are already loaded with the right model and path
             if cls._current_model_path == model_path and cls._current_model_type == model_type:
                 # If only the task type (Txt2Img vs Img2Img) changed, try a fast structural switch
-                if cls._current_is_img2img != is_img2img:
-                    print(f"Switching pipeline mode: {'Txt2Img -> Img2Img' if is_img2img else 'Img2Img -> Txt2Img'}...")
+                if cls._current_is_img2img != is_img2img or cls._current_is_inpaint != is_inpaint:
+                    mode_name = "Inpaint" if is_inpaint else ("Img2Img" if is_img2img else "Txt2Img")
+                    print(f"Switching pipeline mode to {mode_name}...")
                     try:
                         # Map base models for from_pipe
                         base_pipes = {
@@ -561,8 +562,8 @@ class ModelManager:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Determine if we are doing Img2Img or Inpaint
-        is_now_img2img = image is not None
-        is_now_inpaint = mask is not None
+        is_now_img2img = bool(image)
+        is_now_inpaint = bool(mask)
         
         # Pipeline
         pipe, compel = ModelManager.get_pipeline(
@@ -601,23 +602,43 @@ class ModelManager:
                 init_image = Image.open(BytesIO(image_data)).convert("RGB")
                 
                 # Resize if needed (Maintain aspect ratio, multiple of 64)
-                # If we have an image, we use its size or fit to max
+                # We allow up to 2048 for high-quality source images
                 w, h = init_image.size
-                if w > 1024 or h > 1024:
-                    scale = 1024 / max(w, h)
+                max_dim = 2048
+                if w > max_dim or h > max_dim:
+                    scale = max_dim / max(w, h)
                     w, h = int(w * scale), int(h * scale)
                 
-                # Snap to 64
-                w = (w // 64) * 64
-                h = (h // 64) * 64
+                # Snap to 64 but maintain aspect ratio as much as possible
+                # If we snap both, we might distort. Let's snap to closest multiple.
+                w = round(w / 64) * 64
+                h = round(h / 64) * 64
+                
+                # Ensure minimum 64
+                w = max(64, w)
+                h = max(64, h)
+                
                 if w != init_image.size[0] or h != init_image.size[1]:
-                    print(f"Resizing input image for SDXL: {init_image.size} -> ({w}, {h})")
+                    # print(f"Resizing input image: {init_image.size} -> ({w}, {h})")
                     init_image = init_image.resize((w, h), Image.LANCZOS)
                 
-                # Synchronize width/height for pipe
+                # Update target dimensions to match processed image
                 width, height = w, h
+                
+                # Force debug write
+                try:
+                    with open("debug_dims.txt", "w") as f:
+                        f.write(f"Init Image Size: {w}x{h}\n")
+                        f.write(f"Original Req: not-captured-here\n")
+                except: pass
+                
+                import logging
+                logging.getLogger("qpyt-ui").info(f"Processed input image: {width}x{height}")
+                import logging
+                logging.getLogger("qpyt-ui").info(f"Processed input image: {width}x{height}")
             except Exception as e:
-                print(f"Failed to process input image: {e}")
+                import logging
+                logging.getLogger("qpyt-ui").error(f"Failed to process input image: {e}")
                 init_image = None
 
         # Prepare Mask if Inpaint
@@ -628,11 +649,38 @@ class ModelManager:
                 mask_data = base64.b64decode(encoded)
                 init_mask = Image.open(BytesIO(mask_data)).convert("L") # Mode L for mask
                 # Resize mask to match target size
+                print(f"[Debug] Init mask size: {init_mask.size}, Target: ({width}, {height})")
                 if init_mask.size != (width, height):
                     init_mask = init_mask.resize((width, height), Image.LANCZOS)
+                
+                # Debug save
+                debug_path = Path(config.OUTPUT_DIR) / "debug_mask.png"
+                init_mask.save(debug_path)
+                print(f"[Debug] Saved mask to {debug_path}")
             except Exception as e:
                 print(f"Failed to process mask: {e}")
                 init_mask = None
+
+        # Safety Check and Debug for Inpainting
+        if is_now_inpaint:
+            print(f"[Debug] Inpainting Mode. Image present: {init_image is not None}. Mask present: {init_mask is not None}")
+            print(f"[Debug] Denoising Strength: {denoising_strength}")
+            if init_image:
+                 # Debug save image
+                debug_img_path = Path(config.OUTPUT_DIR) / "debug_init_image.png"
+                init_image.save(debug_img_path)
+                print(f"[Debug] Saved init_image to {debug_img_path}, Size: {init_image.size}")
+
+            if init_image is None:
+                print("[Inpaint] Base image missing or invalid, creating black fallback...")
+                init_image = Image.new("RGB", (width, height), (0, 0, 0))
+                # Also save the fallback so we know
+                init_image.save(Path(config.OUTPUT_DIR) / "debug_fallback_image.png")
+            
+            if init_mask is None:
+                # This should not happen if is_now_inpaint is true, but safety first
+                print("[Inpaint] Mask missing or invalid, creating empty mask fallback...")
+                init_mask = Image.new("L", (width, height), 0)
 
         def interrupt_callback(pipe, step_index, timestep, callback_kwargs):
             ModelManager._current_step = step_index + 1
@@ -671,19 +719,20 @@ class ModelManager:
             "callback_on_step_end": interrupt_callback,
             "callback_on_step_end_tensor_inputs": ["latents"]
         }
-
         # Prepare kwargs for Img2Img/Inpaint
         if is_now_inpaint:
             # Inpainting logic
-            kwargs.pop("width", None)
-            kwargs.pop("height", None)
+            # Explicitly pass width/height to ensure pipeline respects image aspect ratio
+            # kwargs.pop("width", None) <-- DO NOT POP
+            # kwargs.pop("height", None) <-- DO NOT POP
             kwargs["image"] = init_image
             kwargs["mask_image"] = init_mask
+            # strength is used for inpainting control in some pipelines, or ignored in others
             kwargs["strength"] = denoising_strength
         elif is_now_img2img:
-            # Width/Height are not used in Img2Img as they come from the image
-            kwargs.pop("width", None)
-            kwargs.pop("height", None)
+            # Explicitly pass width/height
+            # kwargs.pop("width", None) <-- DO NOT POP
+            # kwargs.pop("height", None) <-- DO NOT POP
             kwargs["image"] = init_image
             kwargs["strength"] = denoising_strength
             
@@ -744,7 +793,9 @@ class ModelManager:
         save_ext = ext
         if ext == 'jpg': save_ext = 'jpeg'
         
-        file_name = f"{base_name}_{day_folder}_{timestamp}_{width}x{height}_seed{seed}.{ext}"
+        # Use actual output dimensions for filename, as they might differ from requested
+        actual_w, actual_h = image_out.size
+        file_name = f"{base_name}_{day_folder}_{timestamp}_{actual_w}x{actual_h}_seed{seed}.{ext}"
         file_path = final_output_dir / file_name
         
         save_kwargs = {}

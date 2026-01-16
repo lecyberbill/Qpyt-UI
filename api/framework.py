@@ -25,7 +25,10 @@ class QpytUI:
             {"id": "qp-image-out", "label": "Final Output", "type": "output", "icon": "check-circle"},
             {"id": "qp-rembg", "label": "Background Removal", "type": "generator", "icon": "scissors"},
             {"id": "qp-save-to-disk", "label": "Save to Disk", "type": "output", "icon": "download"},
-            {"id": "qp-vectorize", "label": "Vectorize (SVG)", "type": "generator", "icon": "vector-pen"}
+            {"id": "qp-inpaint", "label": "Inpainting", "type": "generator", "icon": "brush"},
+            {"id": "qp-outpaint", "label": "Outpainting", "type": "generator", "icon": "arrows-angle-expand"},
+            {"id": "qp-vectorize", "label": "Vectorize (SVG)", "type": "generator", "icon": "vector-pen"},
+            {"id": "qp-filter", "label": "Photo Editing", "type": "output", "icon": "sliders"}
         ]
 
     def load_workflow(self, workflow_data: List[Dict[str, Any]]):
@@ -65,6 +68,7 @@ class QpytUI:
             "qp-upscaler": 104,
             "qp-rembg": 105,
             "qp-vectorize": 106,
+            "qp-filter": 150,
             "qp-image-out": 200,
             "qp-save-to-disk": 201,
         }

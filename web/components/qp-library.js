@@ -30,11 +30,13 @@ class QpLibrary extends HTMLElement {
     toggleDrawer(open) {
         const drawer = this.shadowRoot.querySelector('sl-drawer');
         if (drawer) {
+            const shouldOpen = open === undefined ? !drawer.open : open;
+
             if (typeof drawer.show === 'function') {
-                if (open) drawer.show();
+                if (shouldOpen) drawer.show();
                 else drawer.hide();
             } else {
-                if (open) {
+                if (shouldOpen) {
                     drawer.setAttribute('open', '');
                     drawer.open = true;
                 } else {
@@ -114,14 +116,11 @@ class QpLibrary extends HTMLElement {
                         </div>
                     `).join('')}
                 </div>
-                <div slot="footer">
-                    <sl-button variant="neutral" outline id="close-drawer" style="width: 100%;">Close</sl-button>
                 </div>
             </sl-drawer>
         `;
 
-        this.shadowRoot.getElementById('open-drawer').addEventListener('click', () => this.toggleDrawer(true));
-        this.shadowRoot.getElementById('close-drawer')?.addEventListener('click', () => this.toggleDrawer(false));
+        this.shadowRoot.getElementById('open-drawer').addEventListener('click', () => this.toggleDrawer());
         this.shadowRoot.querySelectorAll('.brick-item').forEach(item => {
             item.addEventListener('click', () => this.addBrick(item.dataset.id));
         });

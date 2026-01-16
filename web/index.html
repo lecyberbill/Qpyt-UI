@@ -117,7 +117,6 @@
                 </div>
             </div>
         </div>
-        <sl-button slot="footer" variant="neutral" id="wf-close-btn">Close</sl-button>
     </sl-drawer>
 
     <sl-drawer id="settings-drawer" label="Qpyt-UI Configuration" style="--size: 400px;">
@@ -132,8 +131,7 @@
             <sl-input id="cfg-default-model" label="Default Model (.safetensors)"></sl-input>
 
             <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-                <sl-button id="cfg-save-btn" variant="primary" style="flex: 1;">Save</sl-button>
-                <sl-button id="cfg-close-btn" outline>Cancel</sl-button>
+                <sl-button id="cfg-save-btn" variant="primary" style="width: 100%;">Save Configuration</sl-button>
             </div>
         </div>
     </sl-drawer>
@@ -153,11 +151,12 @@
     <script src="/static/js/imagetracer.js"></script>
 
     <!-- Framework Scripts -->
-    <script type="module" src="/static/components/qp-cartridge.js?v=10"></script>
-    <script type="module" src="/static/components/qp-bricks.js?v=10"></script>
-    <script type="module" src="/static/components/qp-dashboard.js?v=10"></script>
-    <script type="module" src="/static/components/qp-library.js?v=10"></script>
-    <script type="module" src="/static/app.js?v=10"></script>
+    <script type="module" src="/static/components/qp-cartridge.js?v=12"></script>
+    <script type="module" src="/static/components/qp-bricks.js?v=12"></script>
+    <script type="module" src="/static/components/qp-filter.js?v=12"></script>
+    <script type="module" src="/static/components/qp-dashboard.js?v=12"></script>
+    <script type="module" src="/static/components/qp-library.js?v=12"></script>
+    <script type="module" src="/static/app.js?v=12"></script>
 </body>
 
 </html>

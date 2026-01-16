@@ -32,6 +32,10 @@ class ImageAnalysisResponse(BaseModel):
     prompt: Optional[str] = None
     message: Optional[str] = None
 
+class FilterRequest(BaseModel):
+    image: str # Base64 source
+    settings: Dict[str, Any] # Dictionary of filter values
+
 class UpscaleRequest(BaseModel):
     image: str = Field(..., description="Image source en Base64")
     scale_factor: float = Field(2.0, ge=1.0, le=4.0)
