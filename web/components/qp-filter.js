@@ -16,8 +16,9 @@ class QpFilter extends HTMLElement {
         };
         this.settings = { ...this.defaultSettings };
 
-        this.originalImage = null; // Base64 loaded
-        this.previewImage = null; // Base64 result
+        this.originalImage = null; // Absolute original (for reset)
+        this.workingImage = null; // Current committed state
+        this.previewImage = null; // (Unused in new logic, alias to workingImage)
         this.editorOpen = false;
     }
 
@@ -27,35 +28,43 @@ class QpFilter extends HTMLElement {
 
     // --- Logic ---
 
-    async loadImage() {
-        // 1. Try last generation result
-        let imgToLoad = window.qpyt_app?.lastImage;
+    async loadImage(forceSource = false) {
+        let imgToLoad = null;
 
-        // 2. If none, checks Source Image Input
-        if (!imgToLoad) {
+        // 1. Try Source if forced or if no lastImage
+        if (forceSource) {
             const sourceBrick = document.querySelector('qp-image-input');
-            // 'base64' is the internal prop, 'previewUrl' is the display
             if (sourceBrick && (sourceBrick.base64 || sourceBrick.previewUrl)) {
                 imgToLoad = sourceBrick.base64 || sourceBrick.previewUrl;
+            } else {
+                this.notify("No Source Image found", "warning");
+                return;
+            }
+        } else {
+            // Default behavior: Prefer Last Gen, then Source
+            imgToLoad = window.qpyt_app?.lastImage;
+            if (!imgToLoad) {
+                const sourceBrick = document.querySelector('qp-image-input');
+                if (sourceBrick && (sourceBrick.base64 || sourceBrick.previewUrl)) {
+                    imgToLoad = sourceBrick.base64 || sourceBrick.previewUrl;
+                }
             }
         }
 
         if (imgToLoad) {
             this.originalImage = imgToLoad;
-            this.previewImage = this.originalImage;
-            this.settings = { ...this.defaultSettings }; // Reset settings on new load
+            this.workingImage = imgToLoad;
+            this.settings = { ...this.defaultSettings };
             this.render();
-            // If editor is open, reload it
             if (this.editorOpen) this.renderEditor();
-            this.notify("Image loaded", "success");
+            this.notify(forceSource ? "Source Image Loaded" : "Image loaded", "success");
         } else {
             this.notify("No image found (History or Source)", "warning");
         }
     }
 
     async apply() {
-        if (!this.originalImage) await this.loadImage(); // Auto-load if applied without load
-        if (!this.originalImage) return;
+        if (!this.workingImage) return;
 
         this.isProcessing = true;
         if (this.editorOpen) this.updateEditorState(true);
@@ -65,13 +74,16 @@ class QpFilter extends HTMLElement {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    image: this.originalImage,
+                    image: this.workingImage,
                     settings: this.settings
                 })
             });
             const res = await resp.json();
             if (res.status === 'success') {
-                this.previewImage = res.image;
+                // COMMIT: Update working image, reset sliders
+                this.workingImage = res.image;
+                this.settings = { ...this.defaultSettings };
+                this.notify("Effects applied (Baked)", "success");
             } else {
                 this.notify("Filter failed: " + res.message, "danger");
             }
@@ -80,33 +92,50 @@ class QpFilter extends HTMLElement {
             this.notify("Network error", "danger");
         } finally {
             this.isProcessing = false;
-            this.render(); // Updates the thumbnail in brick
-            if (this.editorOpen) this.renderEditor(); // Updates the preview in editor
+            this.render();
+            if (this.editorOpen) {
+                this.renderEditor(); // Full re-render to reset sliders visually
+            }
         }
     }
 
     reset() {
+        this.workingImage = this.originalImage;
         this.settings = { ...this.defaultSettings };
-        this.previewImage = this.originalImage;
         this.render();
         if (this.editorOpen) this.renderEditor();
     }
 
-    saveAndClose() {
-        if (this.previewImage && window.qpyt_app) {
-            window.qpyt_app.lastImage = this.previewImage;
-            window.dispatchEvent(new CustomEvent('qpyt-output', { detail: { url: this.previewImage } }));
+    async saveAndClose() {
+        // Auto-bake if there are visual changes driven by settings
+        if (this.hasUnsavedChanges()) {
+            this.notify("Auto-baking pending changes...", "neutral");
+            await this.apply();
+        }
+
+        if (this.workingImage && window.qpyt_app) {
+            window.qpyt_app.lastImage = this.workingImage;
+            window.dispatchEvent(new CustomEvent('qpyt-output', { detail: { url: this.workingImage } }));
             this.notify("Changes saved", "success");
         }
         this.closeEditor();
     }
 
+    hasUnsavedChanges() {
+        for (const key in this.defaultSettings) {
+            if (this.settings[key] !== this.defaultSettings[key]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     sendToSource() {
-        if (!this.previewImage) return;
+        if (!this.workingImage) return;
         const sourceBrick = document.querySelector('qp-image-input');
         if (sourceBrick) {
-            sourceBrick.base64 = this.previewImage;
-            sourceBrick.previewUrl = this.previewImage;
+            sourceBrick.base64 = this.workingImage;
+            sourceBrick.previewUrl = this.workingImage;
             sourceBrick.render(); // Ensure source updates
             this.notify("Sent to Source Image!", "success");
         } else {
@@ -120,39 +149,128 @@ class QpFilter extends HTMLElement {
 
     updateSetting(key, val) {
         this.settings[key] = val;
-        // Auto-apply with debounce
+        // Real-time CSS Update
         if (this.editorOpen) {
-            this.debouncedApply();
+            this.updateCSSPreview();
         }
     }
 
-    // Debounce utility
-    debounce(func, wait) {
-        let timeout;
-        return (...args) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
+    get cssFilter() {
+        const s = this.settings;
+        const filters = [];
+        // Basic CSS filters
+        if (s.contrast !== 1.0) filters.push(`contrast(${s.contrast})`);
+        if (s.color_boost !== 1.0) filters.push(`brightness(${s.color_boost})`);
+        if (s.blur_radius > 0) filters.push(`blur(${s.blur_radius}px)`);
+        if (s.hue_angle !== 0) filters.push(`hue-rotate(${s.hue_angle}deg)`);
+
+        // Link to SVG Filter for Matrix operations (Saturation, Vibrance, RGB Shift, Special)
+        filters.push('url(#dynamic-filter)');
+
+        return filters.join(' ');
     }
 
-    // Initialize debounced function in constructor if possible, or lazy init here
-    get debouncedApply() {
-        if (!this._debouncedApply) {
-            this._debouncedApply = this.debounce(() => {
-                // Check if already processing to avoid stacks? 
-                // Actually fetch queueing is fine, but let's try to proceed
-                this.apply();
-            }, 400); // 400ms wait
+    get cssTransform() {
+        const s = this.settings;
+        const transforms = [];
+        if (s.rotation_angle !== 0) transforms.push(`rotate(${s.rotation_angle}deg)`);
+        if (s.mirror_type === 'horizontal') transforms.push('scaleX(-1)');
+        if (s.mirror_type === 'vertical') transforms.push('scaleY(-1)');
+        return transforms.join(' ');
+    }
+
+    updateCSSPreview() {
+        const img = this.shadowRoot.querySelector('.preview-pane img');
+        if (img) {
+            img.style.filter = this.cssFilter;
+            img.style.transform = this.cssTransform;
         }
-        return this._debouncedApply;
+
+        // Update SVG Matrix
+        const filterEl = this.shadowRoot.getElementById('dynamic-filter');
+        if (filterEl) {
+            const s = this.settings;
+
+            // 1. Saturation / Vibrance (Approximated)
+            // Standard Saturation Matrix
+            const sat = s.saturation;
+            const v = s.vibrance * 0.5;
+            const S = sat + v;
+
+            // Luminance constants for RGB
+            const Lr = 0.2126;
+            const Lg = 0.7152;
+            const Lb = 0.0722;
+
+            const sr = (1 - S) * Lr;
+            const sg = (1 - S) * Lg;
+            const sb = (1 - S) * Lb;
+
+            let m00 = sr + S; let m01 = sg; let m02 = sb;
+            let m10 = sr; let m11 = sg + S; let m12 = sb;
+            let m20 = sr; let m21 = sg; let m22 = sb + S;
+
+            // 2. RGB Shift (Additive offsets)
+            const offR = s.color_shift_r / 255;
+            const offG = s.color_shift_g / 255;
+            const offB = s.color_shift_b / 255;
+
+            let m04 = offR;
+            let m14 = offG;
+            let m24 = offB;
+
+            // 3. Special Filters (Naive Overrides)
+            if (s.special_filter === 'sepia') {
+                m00 = 0.393; m01 = 0.769; m02 = 0.189; m04 = 0;
+                m10 = 0.349; m11 = 0.686; m12 = 0.168; m14 = 0;
+                m20 = 0.272; m21 = 0.534; m22 = 0.131; m24 = 0;
+            }
+            else if (s.special_filter === 'negative') {
+                m00 = -1; m01 = 0; m02 = 0; m04 = 1;
+                m10 = 0; m11 = -1; m12 = 0; m14 = 1;
+                m20 = 0; m21 = 0; m22 = -1; m24 = 1;
+            }
+
+            // 4. Construct Filter Chain
+            let svgContent = '';
+
+            // Base Color Matrix
+            svgContent += `<feColorMatrix in="SourceGraphic" result="color" type="matrix" values="
+                 ${m00} ${m01} ${m02} 0 ${m04}
+                 ${m10} ${m11} ${m12} 0 ${m14}
+                 ${m20} ${m21} ${m22} 0 ${m24}
+                 0 0 0 1 0
+             "/>`;
+
+            let lastResult = "color";
+
+            // Convolution Filters
+            if (s.special_filter === 'contour') {
+                svgContent += `<feConvolveMatrix in="${lastResult}" result="contour" order="3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" preserveAlpha="true"/>`;
+                lastResult = "contour";
+            }
+            else if (s.special_filter === 'emboss') {
+                svgContent += `<feConvolveMatrix in="${lastResult}" result="emboss" order="3" kernelMatrix="-2 -1 0 -1 1 1 0 1 2" preserveAlpha="true"/>`;
+                lastResult = "emboss";
+            }
+
+            // Apply to innerHTML
+            filterEl.innerHTML = svgContent;
+
+            // Vignette (handled via CSS Overlay)
+            const vOverlay = this.shadowRoot.getElementById('vignette-overlay');
+            if (vOverlay) {
+                vOverlay.style.opacity = (s.special_filter === 'vignette') ? "1" : "0";
+            }
+        }
     }
 
     // --- Editor Modal Management ---
 
     openEditor() {
-        if (!this.originalImage) {
+        if (!this.workingImage) {
             this.loadImage().then(() => {
-                if (this.originalImage) {
+                if (this.workingImage) {
                     this.editorOpen = true;
                     this.renderEditor();
                 }
@@ -173,6 +291,17 @@ class QpFilter extends HTMLElement {
     updateEditorState(loading) {
         const btn = this.shadowRoot.getElementById('editor-apply-btn');
         if (btn) btn.loading = loading;
+    }
+
+    updatePreviewImage() {
+        // Only update the image element to avoid resetting sliders
+        const container = this.shadowRoot.querySelector('.preview-pane');
+        if (container) {
+            container.innerHTML = this.previewImage
+                ? `<img src="${this.previewImage}">`
+                : `<div style="color:#64748b">No Image</div>`;
+        }
+        this.updateEditorState(false);
     }
 
     renderEditor() {
@@ -261,11 +390,22 @@ class QpFilter extends HTMLElement {
             </div>
 
             <div class="editor-body">
-                <div class="preview-pane">
-                    ${this.previewImage
-                ? `<img src="${this.previewImage}">`
+                <div class="preview-pane" style="position:relative;">
+                    <!-- SVG Filter Definition -->
+                    <svg width="0" height="0" style="position:absolute; pointer-events:none;">
+                        <defs>
+                            <filter id="dynamic-filter" color-interpolation-filters="sRGB">
+                                <!-- Replaced by JS -->
+                            </filter>
+                        </defs>
+                    </svg>
+                    
+                    ${this.workingImage
+                ? `<img src="${this.workingImage}" style="filter:${this.cssFilter}; transform:${this.cssTransform}; transition: transform 0.1s;">`
                 : `<div style="color:#64748b">No Image</div>`
             }
+                    <!-- Vignette Overlay -->
+                    <div id="vignette-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; background:radial-gradient(circle, transparent 50%, black 140%); opacity:0; pointer-events:none; transition:opacity 0.2s;"></div>
                 </div>
                 <div class="controls-pane">
                     <div class="control-content">
@@ -297,8 +437,7 @@ class QpFilter extends HTMLElement {
 
                             <sl-tab-panel name="effects">
                                 <div style="display:flex; flex-direction:column; gap:1rem; padding-top:1rem;">
-                                     <sl-select size="small" label="Special Filter" value="${this.settings.special_filter}" 
-                                        onsl-change="this.getRootNode().host.updateSetting('special_filter', this.value)">
+                                     <sl-select size="small" label="Special Filter" value="${this.settings.special_filter}" id="special-filter-select">
                                         <sl-option value="none">None</sl-option>
                                         <sl-option value="sepia">Sepia</sl-option>
                                         <sl-option value="contour">Contour</sl-option>
@@ -309,8 +448,7 @@ class QpFilter extends HTMLElement {
                                     </sl-select>
                                      <div style="height:1px; background:rgba(255,255,255,0.1);"></div>
                                      ${slider("Rotation", "rotation_angle", -180, 180, 90)}
-                                     <sl-select size="small" label="Mirror" value="${this.settings.mirror_type}"
-                                        onsl-change="this.getRootNode().host.updateSetting('mirror_type', this.value)">
+                                     <sl-select size="small" label="Mirror" value="${this.settings.mirror_type}" id="mirror-select">
                                         <sl-option value="none">None</sl-option>
                                         <sl-option value="horizontal">Horizontal</sl-option>
                                         <sl-option value="vertical">Vertical</sl-option>
@@ -322,13 +460,16 @@ class QpFilter extends HTMLElement {
 
                     <div class="action-bar">
                          <sl-button variant="primary" id="editor-apply-btn" onclick="this.getRootNode().host.apply()" ?loading="${this.isProcessing}">
-                            <sl-icon slot="prefix" name="magic"></sl-icon> Apply Effects
+                            <sl-icon slot="prefix" name="magic"></sl-icon> Apply (Bake)
                         </sl-button>
+                        <div style="font-size:0.75rem; color:#64748b; text-align:center;">
+                            'Apply' will bake the filters permanently and reset sliders.
+                        </div>
                         <div style="display:flex; gap:0.5rem;">
                              <sl-button variant="success" style="flex:1;" onclick="this.getRootNode().host.saveAndClose()">
                                 <sl-icon slot="prefix" name="check-lg"></sl-icon> Save & Close
                             </sl-button>
-                            <sl-button variant="warning" outline style="flex:1;" onclick="this.getRootNode().host.sendToSource()">
+                            <sl-button variant="warning" outline style="flex:1;" onclick="this.getRootNode().host.loadImage(true)">
                                 <sl-icon slot="prefix" name="arrow-left"></sl-icon> Use Source
                             </sl-button>
                         </div>
@@ -339,6 +480,34 @@ class QpFilter extends HTMLElement {
                 </div>
             </div>
         `;
+
+
+
+        // Attach Event Listeners for Custom Elements (sl-select) with improved reliability
+        // We search within overlay to be sure
+        setTimeout(() => {
+            const specialSelect = overlay.querySelector('#special-filter-select');
+            if (specialSelect) {
+                console.log("[QP-Filter] Attaching listener to Special Filter");
+                specialSelect.addEventListener('sl-change', (e) => {
+                    console.log("[QP-Filter] Special Filter Changed:", e.target.value);
+                    this.updateSetting('special_filter', e.target.value);
+                });
+            } else {
+                console.error("[QP-Filter] Special Filter Element NOT FOUND");
+            }
+
+            const mirrorSelect = overlay.querySelector('#mirror-select');
+            if (mirrorSelect) {
+                mirrorSelect.addEventListener('sl-change', (e) => {
+                    console.log("[QP-Filter] Mirror Changed:", e.target.value);
+                    this.updateSetting('mirror_type', e.target.value);
+                });
+            }
+        }, 0);
+
+        // Initialize SVG Filter
+        this.updateCSSPreview();
     }
 
     // --- Main Brick UI ---
@@ -368,8 +537,8 @@ class QpFilter extends HTMLElement {
         <qp-cartridge title="Photo Editor" type="output" icon="sliders" brick-id="${brickId}">
             <div class="container">
                 <div class="preview-thumb" onclick="this.getRootNode().host.openEditor()">
-                    ${this.previewImage
-                ? `<img src="${this.previewImage}">`
+                    ${this.workingImage
+                ? `<img src="${this.workingImage}">`
                 : `<div style="color:#64748b; font-size:0.8rem; display:flex; flex-direction:column; align-items:center;">
                              <sl-icon name="image" style="font-size:2rem; margin-bottom:0.5rem;"></sl-icon>
                              Click to Load & Edit
@@ -381,7 +550,11 @@ class QpFilter extends HTMLElement {
                     <sl-icon slot="prefix" name="pencil-square"></sl-icon> Open Editor
                 </sl-button>
                 
-                ${this.previewImage ? `
+                <sl-button variant="neutral" outline style="width:100%" size="small" onclick="this.getRootNode().host.loadImage(true)">
+                    <sl-icon slot="prefix" name="box-arrow-in-down"></sl-icon> Load Source Image
+                </sl-button>
+                
+                ${this.workingImage ? `
                      <sl-button variant="neutral" outline style="width:100%" size="small" onclick="this.getRootNode().host.sendToSource()">
                         <sl-icon slot="prefix" name="arrow-up-circle"></sl-icon> Send to Source
                     </sl-button>

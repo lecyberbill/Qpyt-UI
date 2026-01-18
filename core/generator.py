@@ -11,6 +11,9 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="diffusers.conf
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*upcast_vae.*")
 from pathlib import Path
 from diffusers import (
+    StableDiffusionXLPipeline, 
+    StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLInpaintPipeline,
     FluxPipeline, 
     FluxImg2ImgPipeline,
     FluxInpaintPipeline,
@@ -21,7 +24,9 @@ from diffusers import (
     GGUFQuantizationConfig,
     QuantoConfig,
     FluxTransformer2DModel,
-    AutoencoderKL
+    AutoencoderKL,
+    SD3Transformer2DModel,
+    BitsAndBytesConfig
 )
 from transformers import CLIPTextModel, T5EncoderModel, T5TokenizerFast
 # Suppress CLIP token limit warnings for Flux (as we rely on T5)
@@ -35,6 +40,7 @@ from core.config import config
 import base64
 from io import BytesIO
 from PIL import Image
+from safetensors import safe_open
 
 # Enable TF32 for faster and memory efficient computation on Ampere+ GPUs
 if torch.cuda.is_available():
@@ -56,6 +62,7 @@ class ModelManager:
     _total_steps = 0
     _weights_t = None
     _biases_t = None
+    _active_lora_names = [] # Names of currently loaded LoRA adapters
 
     @classmethod
     def latents_to_rgb(cls, latents):
@@ -140,7 +147,117 @@ class ModelManager:
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
                 torch.cuda.synchronize()
+            cls._active_lora_names = []
             print("Memory cleared.")
+
+    @classmethod
+    def _get_lora_architecture(cls, lora_path: Path):
+        """
+        Inspects the safetensors metadata/tensors to determine if it's SD 1.5 or SDXL/Flux.
+        Returns 'sdxl', 'sd15', 'flux' or 'unknown'.
+        """
+        try:
+            with safe_open(lora_path, framework="pt", device="cpu") as f:
+                metadata = f.metadata()
+                if metadata:
+                    # Try to get from metadata first
+                    base_model = metadata.get("ss_base_model_version")
+                    if base_model:
+                        if "sdxl" in base_model.lower(): return "sdxl"
+                        if "v1-5" in base_model.lower() or "sd15" in base_model.lower(): return "sd15"
+                        if "flux" in base_model.lower(): return "flux"
+
+                # Fallback: Check tensor shapes
+                # SD 1.5: usually 768 (attn2.to_k)
+                # SDXL: 2048 (attn2.to_k)
+                # Flux: 4096 or transformer blocks
+                for key in f.keys():
+                    if "attn2.to_k" in key or "attn2_to_k" in key:
+                        shape = f.get_slice(key).get_shape()
+                        if len(shape) >= 2:
+                            dim = shape[1]
+                            if dim == 768: return "sd15"
+                            if dim == 2048: return "sdxl"
+                            if dim == 4096: return "flux"
+                    
+                    if "transformer.single_transformer_blocks" in key or "flux" in key.lower():
+                        # Strong indicator of Flux DiT architecture
+                        return "flux"
+
+        except Exception as e:
+            print(f"[LoRA Check] Error inspecting {lora_path}: {e}")
+        return "unknown"
+
+    @classmethod
+    def apply_loras(cls, pipeline, loras):
+        """
+        Applies multiple LoRAs to the given pipeline.
+        'loras' is a list of dicts: [{'path': '...', 'weight': 0.8, 'enabled': True}]
+        """
+        if pipeline is None:
+            return
+
+        # 1. Reset adapters if any were active
+        if hasattr(pipeline, "unload_lora_weights"):
+            try:
+                pipeline.unload_lora_weights()
+            except Exception as e:
+                print(f"[LoRA] Error unloading: {e}")
+        
+        cls._active_lora_names = []
+        active_loras = [l for l in loras if l.get('enabled', True)]
+        warnings = []
+        
+        if not active_loras:
+            print("[LoRA] No active LoRAs to apply.", flush=True)
+            return []
+
+        print(f"[LoRA] Applying {len(active_loras)} LoRA adapters...", flush=True)
+        
+        adapter_names = []
+        adapter_weights = []
+        
+        for i, lora in enumerate(active_loras):
+            p = lora.get('path')
+            w = lora.get('weight', 1.0)
+            
+            if not p: continue
+            
+            # Construct absolute path
+            lora_path = Path(config.get('LORAS_DIR', 'models/loras')) / p
+            if not lora_path.exists():
+                print(f"[LoRA] Warning: LoRA not found at {lora_path}")
+                continue
+                
+            # Architecture Check
+            lora_arch = cls._get_lora_architecture(lora_path)
+            pipe_arch = "sdxl" if isinstance(pipeline, (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline)) else \
+                        "flux" if isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline)) else "unknown"
+            
+            if lora_arch != "unknown" and pipe_arch != "unknown" and lora_arch != pipe_arch:
+                msg = f"Architecture mismatch for {p}: LoRA is {lora_arch.upper()}, but model is {pipe_arch.upper()}."
+                print(f"  ⚠ {msg}", flush=True)
+                warnings.append(msg)
+                continue
+
+            adapter_name = f"adapter_{i}_{Path(p).stem}"
+            try:
+                print(f"  → Loading LoRA: {p} (Scale: {w})", flush=True)
+                pipeline.load_lora_weights(str(lora_path), adapter_name=adapter_name)
+                adapter_names.append(adapter_name)
+                adapter_weights.append(float(w))
+            except Exception as e:
+                print(f"  ✖ Failed to load LoRA {p}: {e}", flush=True)
+
+        if adapter_names:
+            try:
+                pipeline.set_adapters(adapter_names, adapter_weights)
+                cls._active_lora_names = adapter_names
+                print(f"[LoRA] Successfully blended {len(adapter_names)} adapters: {', '.join(adapter_names)}", flush=True)
+            except Exception as e:
+                print(f"[LoRA] Error setting adapters: {e}", flush=True)
+        
+        return warnings
 
     @classmethod
     def get_pipeline(cls, model_type: str, model_path: str, vae_name: Optional[str] = None, 
@@ -281,38 +398,59 @@ class ModelManager:
                 else:
                     pipeline_class = FluxPipeline
                 if model_path.lower().endswith((".safetensors", ".ckpt", ".sft")):
-                    print(f"Loading local Flux model (quantized): {model_path}")
+                    print(f"Loading local Flux model (quantized/GGUF): {model_path}")
                     bfl_repo = "black-forest-labs/FLUX.1-schnell"
-                    try:
-                        q_config = QuantoConfig(weights_dtype="float8")
-                        transformer = FluxTransformer2DModel.from_single_file(
-                            model_path, 
-                            quantization_config=q_config,
-                            torch_dtype=torch.bfloat16
-                        )
-                        text_encoder_2 = T5EncoderModel.from_pretrained(bfl_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
-                        
-                        cls._pipeline = pipeline_class.from_pretrained(
-                            bfl_repo, 
-                            transformer=transformer, 
-                            text_encoder_2=text_encoder_2, 
-                            torch_dtype=torch.bfloat16
-                        )
-                        is_quantized = True
-                    except Exception as e:
-                        print(f"Premium Flux load failed: {e}. Trying standard fallback...")
-                        # Standard single file fallback
-                        text_encoder = CLIPTextModel.from_pretrained(bfl_repo, subfolder="text_encoder", torch_dtype=torch.bfloat16)
-                        text_encoder_2 = T5EncoderModel.from_pretrained(bfl_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
-                        vae = AutoencoderKL.from_pretrained(bfl_repo, subfolder="vae", torch_dtype=torch.bfloat16)
-                        
-                        cls._pipeline = pipeline_class.from_single_file(
-                            model_path, 
-                            text_encoder=text_encoder,
-                            text_encoder_2=text_encoder_2,
-                            vae=vae,
-                            torch_dtype=torch.bfloat16
-                        )
+                    
+                    # Iterative component loading for GGUF robustness
+                    extra_components = {}
+                    max_attempts = 4
+                    current_attempt = 0
+                    
+                    while current_attempt < max_attempts:
+                        try:
+                            # Try loading with whatever components we have so far
+                            if current_attempt == 0:
+                                # First attempt: try Quanto FP8 if possible
+                                try:
+                                    q_config = QuantoConfig(weights_dtype="float8")
+                                    transformer = FluxTransformer2DModel.from_single_file(
+                                        model_path, 
+                                        quantization_config=q_config,
+                                        torch_dtype=torch.bfloat16
+                                    )
+                                    extra_components["transformer"] = transformer
+                                except Exception as qe:
+                                    print(f"Quanto FP8 failed, using standard load: {qe}")
+                            
+                            cls._pipeline = pipeline_class.from_single_file(
+                                model_path,
+                                torch_dtype=torch.bfloat16,
+                                **extra_components
+                            )
+                            break # Success!
+                            
+                        except Exception as e:
+                            current_attempt += 1
+                            error_str = str(e).lower()
+                            print(f"[GGUF Fallback] Attempt {current_attempt}/{max_attempts} failed: {e}")
+                            
+                            # Identify missing component
+                            if "cliptextmodel" in error_str and "text_encoder" not in extra_components:
+                                print("Loading CLIPTextModel fallback...")
+                                extra_components["text_encoder"] = CLIPTextModel.from_pretrained(bfl_repo, subfolder="text_encoder", torch_dtype=torch.bfloat16)
+                            elif ("t5encodermodel" in error_str or "text_encoder_2" in error_str) and "text_encoder_2" not in extra_components:
+                                print("Loading T5EncoderModel fallback...")
+                                extra_components["text_encoder_2"] = T5EncoderModel.from_pretrained(bfl_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
+                            elif ("autoencoderkl" in error_str or "vae" in error_str) and "vae" not in extra_components:
+                                print("Loading VAE fallback...")
+                                extra_components["vae"] = AutoencoderKL.from_pretrained(bfl_repo, subfolder="vae", torch_dtype=torch.bfloat16)
+                            else:
+                                if current_attempt >= max_attempts:
+                                    raise e
+                                # If we can't identify the component but have attempts left, try generic component loading?
+                                # Actually, better to bail if we can't figure it out.
+                                raise e
+                    is_quantized = True
                 elif os.path.isdir(model_path):
                     cls._pipeline = pipeline_class.from_pretrained(model_path, torch_dtype=torch.bfloat16)
 
@@ -356,49 +494,100 @@ class ModelManager:
                     # Local single file loading
                     print(f"Loading local {model_type} model: {model_path}")
                     
-                    # Optimization: Use 4-bit T5 even for local models to save ~8GB VRAM
-                    # This is CRITICAL for 12GB cards
-                    try:
-                        print(f"[{model_type}] Loading 4-bit T5 encoder to save VRAM...")
-                        text_encoder_3 = T5EncoderModel.from_pretrained(
-                            "diffusers/t5-nf4",
-                            torch_dtype=torch.float16,
-                            device_map="auto"
-                        )
-                    except Exception as t5_err:
-                        print(f"[{model_type}] Could not load 4-bit T5, using default: {t5_err}")
-                        text_encoder_3 = None
+                    # Iterative component loading for SD3/SD3.5 robustness
+                    extra_components = {}
+                    max_attempts = 5
+                    current_attempt = 0
+                    
+                    while current_attempt < max_attempts:
+                        try:
+                            # 1. NF4 Transformer Quantization (if not already in extra_components)
+                            if "transformer" not in extra_components:
+                                nf4_config = BitsAndBytesConfig(
+                                    load_in_4bit=True,
+                                    bnb_4bit_quant_type="nf4",
+                                    bnb_4bit_compute_dtype=torch.bfloat16
+                                )
+                                try:
+                                    print(f"[{model_type}] Attempting NF4 Transformer load...")
+                                    transformer = SD3Transformer2DModel.from_single_file(
+                                        model_path,
+                                        quantization_config=nf4_config,
+                                        torch_dtype=torch.bfloat16
+                                    )
+                                    extra_components["transformer"] = transformer
+                                except Exception as trans_err:
+                                    print(f"[{model_type}] NF4 Transformer load failed, using default: {trans_err}")
 
-                    try:
-                        cls._pipeline = pipeline_class.from_single_file(
-                            model_path, 
-                            text_encoder_3=text_encoder_3,
-                            torch_dtype=torch.float16
-                        )
-                    except Exception as e:
-                        if "CLIPTextModelWithProjection" in str(e) or "text_encoder" in str(e).lower():
-                            print(f"[{model_type}] Missing components, loading from repo fallback...")
-                            from transformers import CLIPTextModelWithProjection
-                            text_encoder = CLIPTextModelWithProjection.from_pretrained(load_repo, subfolder="text_encoder", torch_dtype=torch.float16)
-                            text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(load_repo, subfolder="text_encoder_2", torch_dtype=torch.float16)
-                            if text_encoder_3 is None:
-                                text_encoder_3 = T5EncoderModel.from_pretrained(load_repo, subfolder="text_encoder_3", torch_dtype=torch.float16)
-                            
+                            # 2. Optimization: Use 4-bit T5 (if not already in extra_components)
+                            if "text_encoder_3" not in extra_components:
+                                try:
+                                    print(f"[{model_type}] Loading 4-bit T5 encoder to save VRAM...")
+                                    text_encoder_3 = T5EncoderModel.from_pretrained(
+                                        "diffusers/t5-nf4",
+                                        torch_dtype=torch.bfloat16,
+                                        device_map="auto"
+                                    )
+                                    extra_components["text_encoder_3"] = text_encoder_3
+                                except Exception as t5_err:
+                                    print(f"[{model_type}] Could not load 4-bit T5: {t5_err}")
+
                             cls._pipeline = pipeline_class.from_single_file(
                                 model_path,
-                                text_encoder=text_encoder,
-                                text_encoder_2=text_encoder_2,
-                                text_encoder_3=text_encoder_3,
-                                torch_dtype=torch.float16
+                                torch_dtype=torch.bfloat16,
+                                **extra_components
                             )
-                        else:
-                            raise e
+                            break # Success!
+
+                        except Exception as e:
+                            current_attempt += 1
+                            error_str = str(e).lower()
+                            print(f"[{model_type} Fallback] Attempt {current_attempt}/{max_attempts} failed: {e}")
+                            
+                            from transformers import CLIPTextModelWithProjection
+                            # Identify missing component
+                            if ("cliptextmodel" in error_str or "text_encoder" in error_str) and "text_encoder" not in extra_components:
+                                print(f"[{model_type}] Loading CLIPTextModel fallback...")
+                                extra_components["text_encoder"] = CLIPTextModelWithProjection.from_pretrained(load_repo, subfolder="text_encoder", torch_dtype=torch.bfloat16)
+                            elif ("text_encoder_2" in error_str) and "text_encoder_2" not in extra_components:
+                                print(f"[{model_type}] Loading CLIPTextModelWithProjection (2) fallback...")
+                                extra_components["text_encoder_2"] = CLIPTextModelWithProjection.from_pretrained(load_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
+                            elif ("text_encoder_3" in error_str or "t5encodermodel" in error_str) and "text_encoder_3" not in extra_components:
+                                print(f"[{model_type}] Loading T5EncoderModel fallback...")
+                                extra_components["text_encoder_3"] = T5EncoderModel.from_pretrained(load_repo, subfolder="text_encoder_3", torch_dtype=torch.bfloat16)
+                            elif ("autoencoderkl" in error_str or "vae" in error_str) and "vae" not in extra_components:
+                                print(f"[{model_type}] Loading VAE fallback...")
+                                extra_components["vae"] = AutoencoderKL.from_pretrained(load_repo, subfolder="vae", torch_dtype=torch.bfloat16)
+                            elif "transformer" in error_str and "transformer" not in extra_components:
+                                print(f"[{model_type}] Loading Transformer fallback...")
+                                extra_components["transformer"] = SD3Transformer2DModel.from_pretrained(load_repo, subfolder="transformer", torch_dtype=torch.bfloat16)
+                            else:
+                                if current_attempt >= max_attempts:
+                                    raise e
+                                # If we can't identify the bug, we might be looping infinitely
+                                print(f"[{model_type}] Unidentified loading error, aborting iterative fallback.")
+                                raise e
                 else:
-                    # Hugging Face remote loading
-                    print(f"Loading remote {model_type} model: {model_path}...")
+                    # Hugging Face remote loading with NF4
+                    print(f"Loading remote {model_type} model with NF4: {model_path}...")
+                    nf4_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=torch.bfloat16
+                    )
+                    transformer = SD3Transformer2DModel.from_pretrained(
+                        model_path,
+                        subfolder="transformer",
+                        quantization_config=nf4_config,
+                        torch_dtype=torch.bfloat16
+                    )
+                    text_encoder_3 = T5EncoderModel.from_pretrained("diffusers/t5-nf4", torch_dtype=torch.bfloat16)
+                    
                     cls._pipeline = pipeline_class.from_pretrained(
                         model_path,
-                        torch_dtype=torch.float16
+                        transformer=transformer,
+                        text_encoder_3=text_encoder_3,
+                        torch_dtype=torch.bfloat16
                     )
                 is_quantized = True
 
@@ -526,11 +715,13 @@ class ModelManager:
                  model_name: str = None, width: int = 1024, height: int = 1024, 
                  guidance_scale: float = 7.0, num_inference_steps: int = 30, seed: int = None, 
                  vae_name: str = None, sampler_name: str = None, image: str = None, 
-                 denoising_strength: float = 0.5, output_format: str = "png", mask: str = None):
+                 denoising_strength: float = 0.5, output_format: str = "png", mask: str = None,
+                 loras: Optional[list] = None):
         """
         Génère une image (ou transforme une existante) à partir des paramètres.
         """
         cls.reset_interrupt()
+        lora_warnings = []
         import gc
         gc.collect()
         if torch.cuda.is_available():
@@ -578,6 +769,14 @@ class ModelManager:
         )
         active_pipe = pipe
         ModelManager.reset_interrupt()
+
+        # Apply LoRAs if provided
+        if loras:
+            print(f"[Debug] Received {len(loras)} LoRA configurations from request.", flush=True)
+            lora_warnings = ModelManager.apply_loras(pipe, loras)
+        elif ModelManager._active_lora_names:
+            print("[Debug] Clearing previous LoRAs (none requested).", flush=True)
+            ModelManager.apply_loras(pipe, [])
         
         # Seed
         generator = None
@@ -822,7 +1021,9 @@ class ModelManager:
             "num_inference_steps": num_inference_steps,
             "seed": seed,
             "vae_name": vae_name,
-            "sampler_name": sampler_name
+            "sampler_name": sampler_name,
+            "loras": loras,
+            "lora_warnings": lora_warnings
         }
 
         return f"{day_folder}/{file_name}", exec_time, used_params
@@ -830,12 +1031,14 @@ class ModelManager:
     @classmethod
     def upscale(cls, image_base64: str, scale_factor: float = 2.0, denoising_strength: float = 0.2, 
                 tile_size: int = 768, prompt: str = "", negative_prompt: str = "", 
-                model_name: Optional[str] = None, output_format: str = "png", seed: Optional[int] = 42, **kwargs):
+                model_name: Optional[str] = None, output_format: str = "png", seed: Optional[int] = 42, 
+                loras: Optional[list] = None, **kwargs):
         """
         Tiled upscaler implementation.
         Processes images in overlapping tiles to allow high-res upscaling on limited VRAM.
         """
         start_time = time.time()
+        lora_warnings = []
         
         # 1. Prepare image
         try:
@@ -886,6 +1089,14 @@ class ModelManager:
             is_img2img=True
         )
         cls.reset_interrupt()
+
+        # Apply LoRAs if provided
+        if loras:
+            print(f"[Debug] Upscaler received {len(loras)} LoRA configurations.", flush=True)
+            lora_warnings = cls.apply_loras(pipe, loras)
+        elif cls._active_lora_names:
+            print("[Debug] Upscaler clearing previous LoRAs (none requested).", flush=True)
+            cls.apply_loras(pipe, [])
         
         # 3. Tiling Configuration
         overlap = 128
@@ -1021,7 +1232,9 @@ class ModelManager:
             "tiles": total_tiles,
             "width": target_w,
             "height": target_h,
-            "seed": seed
+            "seed": seed,
+            "loras": loras,
+            "lora_warnings": lora_warnings
         }
         
         print(f"[Upscaler] Success: {target_w}x{target_h} in {exec_time:.1f}s")
@@ -1071,4 +1284,23 @@ def list_samplers() -> list:
         "LMS",
         "DDIM"
     ]
+
+def list_loras() -> list:
+    """Lists available LoRA files."""
+    directory = Path(config.get('LORAS_DIR', 'models/loras'))
+    if not directory or not directory.exists():
+        return []
+    
+    loras = []
+    # Support subdirectories
+    for ext in ['*.safetensors', '*.ckpt']:
+        for f in directory.rglob(ext):
+            # Return path relative to LORAS_DIR
+            try:
+                rel_path = f.relative_to(directory)
+                loras.append(str(rel_path))
+            except:
+                loras.append(f.name)
+    
+    return sorted(loras)
 

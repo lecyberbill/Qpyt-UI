@@ -3,15 +3,16 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V0.8 (Advanced Editing)
-**Goal**: Advanced imaging bricks and speed optimization.
+**Current Version**: V0.9.6 (NF4 & Stability)
+**Goal**: Optimized SD 3.5 Turbo, BFloat16 precision, and robust model loading.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
     - **Imaging**: Diffusers (SDXL, FLUX, SD3.5).
     - **Vision**: Florence-2 (Prompt generation from images).
     - **Translation**: MarianMT (Helsinki-NLP) for FR -> EN prompt support.
     - **Cognitive**: Qwen2.5 (LLM for prompt enhancement).
-- **VRAM Strategy**: Intelligent offloading (CPU/GPU) with automatic unloading of secondary models (Analyzer/Translator/LLM) during image generation.
+- **VRAM Strategy**: Intelligent offloading (CPU/GPU) with NF4/T5-NF4 for SD 3.5 and iterative component loading for robust GGUF/Safetensors support.
+- **Environment Constraint**: **USE `.venv`**. All commands, package checks, and executions must be performed within the project's virtual environment (`.venv`). Do not use system-level Python.
 
 ## 2. Key Technical Milestones
 
@@ -44,9 +45,35 @@ This document tracks architectural decisions, implemented features, and the road
 - **Workflow Management**:
     - Implemented `DELETE` endpoint for saved workflows (`/workflows/delete`).
     - Added UI controls (Trash icon) in the Workflow Drawer.
-- **UX Polish**:
-    - Standardized "Toggle" behavior for all sidebar drawers (History, Library, Settings, Workflows).
-    - Removed redundant footer close buttons.
+- **Final Output Lightbox**:
+    - Fixed image pathing issues in `qp-dashboard.js`.
+    - Added direct-click interaction on image previews to open the fullscreen view.
+
+### LoRA Manager & Reliability (V0.9.5 Updates)
+- **LoRA Manager Brick**:
+    - Dynamic loading, unloading, and weight blending.
+    - **Dual Controls**: Synchronized numerical input and slider for precise weight management.
+- **Safety & Architecture Check**:
+    - Implemented **Smart Detection** in `core/generator.py` to prevent "Size Mismatch" errors.
+    - Proactively validates LoRA architecture (SD 1.5 vs SDXL/Flux) against the active pipeline.
+    - Populates non-intrusive UI warnings when incompatible LoRAs are skipped.
+- **Session History Log (HTML)**:
+    - Implemented `api/history_log.py` to generate a local HTML report of the current session.
+    - Stores metadata, prompts, and crucially, the **list of applied LoRAs** for reproducibility.
+
+### SD 3.5 Optimization & Stability (V0.9.6 Updates)
+- **NF4 Transformer Quantization**: 
+    - Integrated `BitsAndBytesConfig` for SD 3.5 Turbo to reduce VRAM from 20GB+ to ~12-14GB.
+    - Leveraged 4-bit T5 encoder (`diffusers/t5-nf4`) as standard for SD 3.5 code paths.
+- **Precision Migration (BFloat16)**:
+    - Migrated Flux and SD 3.5 pipelines to `torch.bfloat16`. 
+    - Prevents NaN/OOM issues in Transformer blocks compared to standard FP16.
+- **Iterative GGUF/Safetensors Fallback**:
+    - Implemented a `while` loop fallback system in `core/generator.py` for Flux and SD 3.5.
+    - Automatically identifies missing components (VAE, CLIP, T5) and fetches them from official Hugging Face repositories.
+- **Unit Testing Infrastructure**:
+    - Created `tests/test_loader.py` to verify model loading states and API stability.
+    - Integrated environment-aware regression testing (using `.venv`).
 
 ## 3. Memory & Performance Strategy
 - **SDXL/Flux**: Use of `enable_model_cpu_offload()` to stay under 12GB VRAM.
@@ -62,17 +89,17 @@ This document tracks architectural decisions, implemented features, and the road
 - [x] **Background Removal (REMBG)**: Foreground extraction (using `rembg[gpu]` for CUDA acceleration).
 - [x] **Vectorization**: Integrated SVG conversion module.
 - [x] **Filters & Editing**: Contrast, Brightness, Saturation, Blur/Sharpen post-processing.
-- [ ] **LoRA Manager**: Dynamic loading and blending of multiple LoRAs with weight control.
+- [x] **LoRA Manager**: Dynamic loading and blending of multiple LoRAs with weight control.
 
 ### Workflow & Speed
-- [ ] **SD 3.5 Turbo**: Support for high-speed distilled versions of SD 3.5.
+- [x] **SD 3.5 Turbo**: Support for high-speed distilled versions of SD 3.5 with NF4 optimizations.
 - [x] **Style Injection Bricks**: One-click components to append specific tokens/LoRAs to the prompt.
-- [ ] **LoRA Dashboard**: Sidebar or brick for managing downloaded LoRAs.
+- [x] **LoRA Dashboard**: Integrated LoRA selection with architectural safety checks.
 - [x] **Workflow Management**: Save/Load/Delete full brick layouts.
 - [ ] **Hot Reloading UI**: Better frontend synchronization.
 
 ### Finalization
-- [ ] **Preset System**: Library of pre-configured workflows (moved to final phase).
+- [x] **Preset System**: Library of pre-configured workflows.
 
 ## 5. Version History
 - **V0.1 - V0.2**: PoC and Cartridge system (Micro-Gradio).
@@ -82,7 +109,9 @@ This document tracks architectural decisions, implemented features, and the road
 - **V0.6**: LLM Prompt Enhancer (Qwen2.5 cognitive layer).
 - **V0.7**: Lightning Generation.
 - **V0.8**: Inpainting & Outpainting overhaul.
-- **V0.9**: Photo Editor V2, Filters, Base64 Save, Workflow Deletion.
+- **V0.9**: Photo Editor V2, Real-time Filters, Base64 Save System, Workflow Deletion.
+- **V0.9.5**: LoRA Manager with Architecture Check, HTML Session History Logs, UI Safety Warnings.
+- **V0.9.6**: SD 3.5 Turbo NF4 Optimization, BFloat16 precision, Iterative GGUF/Safetensors Fallback.
 
 ---
 

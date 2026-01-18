@@ -22,6 +22,7 @@ class QpytUI:
             {"id": "qp-render-sd35turbo", "label": "SD3.5 Turbo (Lightning)", "type": "generator", "icon": "lightning-charge"},
             {"id": "qp-img2img", "label": "Img2Img Refiner", "type": "generator", "icon": "magic"},
             {"id": "qp-upscaler", "label": "Tiled Upscaler", "type": "generator", "icon": "aspect-ratio"},
+            {"id": "qp-lora-manager", "label": "LoRA Manager", "type": "generator", "icon": "layers-half"},
             {"id": "qp-image-out", "label": "Final Output", "type": "output", "icon": "check-circle"},
             {"id": "qp-rembg", "label": "Background Removal", "type": "generator", "icon": "scissors"},
             {"id": "qp-save-to-disk", "label": "Save to Disk", "type": "output", "icon": "download"},

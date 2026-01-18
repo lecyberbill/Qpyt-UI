@@ -1,0 +1,33 @@
+[
+    {
+        "id": "input-1",
+        "type": "qp-prompt",
+        "props": {
+            "prompt": "Minimalist vector logo, flat design, clean lines, white background"
+        }
+    },
+    {
+        "id": "settings-1",
+        "type": "qp-settings",
+        "props": {
+            "guidance_scale": 1.0,
+            "num_inference_steps": 4,
+            "output_format": "png"
+        }
+    },
+    {
+        "id": "gen-1",
+        "type": "qp-render-flux",
+        "props": {}
+    },
+    {
+        "id": "rembg-1",
+        "type": "qp-rembg",
+        "props": {}
+    },
+    {
+        "id": "vec-1",
+        "type": "qp-vectorize",
+        "props": {}
+    }
+]

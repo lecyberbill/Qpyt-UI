@@ -1,0 +1,32 @@
+[
+    {
+        "id": "input-1",
+        "type": "qp-prompt",
+        "props": {
+            "prompt": "Professional portrait, soft lighting, 8k, highly detailed"
+        }
+    },
+    {
+        "id": "settings-1",
+        "type": "qp-settings",
+        "props": {
+            "width": 832,
+            "height": 1216
+        }
+    },
+    {
+        "id": "gen-1",
+        "type": "qp-render-sdxl",
+        "props": {}
+    },
+    {
+        "id": "out-1",
+        "type": "qp-image-out",
+        "props": {}
+    },
+    {
+        "id": "edit-1",
+        "type": "qp-filter",
+        "props": {}
+    }
+]

@@ -1,0 +1,31 @@
+[
+    {
+        "id": "src-1",
+        "type": "qp-image-input",
+        "props": {}
+    },
+    {
+        "id": "prompt-1",
+        "type": "qp-prompt",
+        "props": {
+            "prompt": "restore old photo, highly detailed, sharpen, remove artifacts"
+        }
+    },
+    {
+        "id": "paint-1",
+        "type": "qp-inpaint",
+        "props": {}
+    },
+    {
+        "id": "upscale-1",
+        "type": "qp-upscaler",
+        "props": {
+            "upscaleFactor": 2
+        }
+    },
+    {
+        "id": "out-1",
+        "type": "qp-image-out",
+        "props": {}
+    }
+]

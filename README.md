@@ -1,4 +1,4 @@
-# Qpyt-UI V0.9 TURBO
+# Qpyt-UI V0.9.6 TURBO
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -13,7 +13,7 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 
 ### 🎨 Generative Imaging
 - **Multi-Engine Support**: Seamlessly switch between **SDXL**, **FLUX.1-Schnell**, and **SD 3.5 Turbo**.
-- **Lightning Generation**: Optimized pipelines for near-real-time results on consumer RTX cards.
+- **Lightning Generation**: Optimized NF4/T5-NF4 pipelines for high-speed generation with reduced VRAM footprint.
 - **Tiled Upscaler**: High-fidelity upscaling (up to 4K+) using tiled diffusion to minimize VRAM usage.
 
 ### 🛠️ Advanced Editing Tools
@@ -32,6 +32,9 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 
 ### 🧱 Workflow Management
 - **Brick System**: Drag-and-drop modular interface.
+- **LoRA Manager**: Dynamic loading and blending of multiple LoRAs with weight synchronization and **Architectural Safety Checks** (SD 1.5 vs SDXL/Flux).
+- **Iterative Fallback**: Robust handling of incomplete GGUF/Safetensors models by automatically fetching missing components (VAE, CLIP, T5) from official repositories.
+- **Session History Log**: Automatic generation of HTML reports including full metadata and LoRA configurations.
 - **Persistence**: Save, Load, and **Delete** complex node layouts as JSON workflows.
 - **State Management**: Circular dependencies and history tracking.
 
@@ -54,9 +57,16 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
     ```bash
     python api/main.py
     ```
-4.  **Access**: Open `http://127.0.0.1:8000` in your browser.
+4.  **Verification**: 
+    Run built-in tests to verify model loading:
+    ```bash
+    .\.venv\Scripts\python.exe tests/test_loader.py
+    ```
+5.  **Access**: Open `http://127.0.0.1:8000` in your browser.
 
 ## Version History
+*   **V0.9.6**: SD 3.5 Turbo NF4 Optimization, BFloat16 precision, Iterative GGUF/Safetensors Fallback, **Preset System Integration**.
+*   **V0.9.5**: LoRA Manager with Architecture Check, HTML Session History Logs, UI Safety Warnings.
 *   **V0.9**: Photo Editor V2, Real-time Filters, Base64 Save System, Workflow Deletion.
 *   **V0.8**: Inpainting & Outpainting Overhaul.
 *   **V0.7**: Lightning Generation & Turbo Models.

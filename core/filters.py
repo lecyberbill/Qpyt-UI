@@ -138,9 +138,11 @@ class ImageEditor:
     def apply_color_shift(self, r: int, g: int, b: int):
         if r == 0 and g == 0 and b == 0: return self
         R, G, B = self.img.split()
-        R = R.point(lambda x: (x + r) % 256)
-        G = G.point(lambda x: (x + g) % 256)
-        B = B.point(lambda x: (x + b) % 256)
+        # Use simple lambda with clamping 0-255 instead of modulo
+        clamp = lambda x, d: max(0, min(255, x + d))
+        R = R.point(lambda x: clamp(x, r))
+        G = G.point(lambda x: clamp(x, g))
+        B = B.point(lambda x: clamp(x, b))
         self.img = Image.merge("RGB", (R, G, B))
         return self
 
@@ -167,8 +169,10 @@ class ImageEditor:
         special = settings.get('special_filter', 'none')
         if special != 'none' and special != 'aucun':
             method = getattr(self, f"apply_{special}", None)
-            if method: method()
-            elif special == "vignette": self.apply_vignette() 
+            if method: 
+                method()
+            elif special == "vignette": 
+                self.apply_vignette() 
             # Note: getattr handles explicit methods defined above
         
         # 5. Advanced

@@ -112,10 +112,23 @@
             </div>
 
             <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
-                <h3 style="font-size: 1rem; margin-top: 0;">Saved Workflows</h3>
-                <div id="workflow-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
-                    <p style="color: #475569; font-style: italic; font-size: 0.8rem;">Loading...</p>
-                </div>
+                <sl-tab-group>
+                    <sl-tab slot="nav" panel="my-workflows">My Workflows</sl-tab>
+                    <sl-tab slot="nav" panel="presets">Factory Presets</sl-tab>
+
+                    <sl-tab-panel name="my-workflows">
+                        <div id="workflow-list"
+                            style="display: flex; flex-direction: column; gap: 0.5rem; padding-top: 1rem;">
+                            <p style="color: #475569; font-style: italic; font-size: 0.8rem;">Loading...</p>
+                        </div>
+                    </sl-tab-panel>
+                    <sl-tab-panel name="presets">
+                        <div id="preset-list"
+                            style="display: flex; flex-direction: column; gap: 0.5rem; padding-top: 1rem;">
+                            <p style="color: #475569; font-style: italic; font-size: 0.8rem;">Loading...</p>
+                        </div>
+                    </sl-tab-panel>
+                </sl-tab-group>
             </div>
         </div>
     </sl-drawer>
@@ -152,12 +165,13 @@
     <script src="/static/js/imagetracer.js"></script>
 
     <!-- Framework Scripts -->
-    <script type="module" src="/static/components/qp-cartridge.js?v=12"></script>
-    <script type="module" src="/static/components/qp-bricks.js?v=12"></script>
-    <script type="module" src="/static/components/qp-filter.js?v=12"></script>
-    <script type="module" src="/static/components/qp-dashboard.js?v=12"></script>
-    <script type="module" src="/static/components/qp-library.js?v=12"></script>
-    <script type="module" src="/static/app.js?v=12"></script>
+    <script type="module" src="/static/components/qp-cartridge.js?v=24"></script>
+    <script type="module" src="/static/components/qp-bricks.js?v=24"></script>
+    <script type="module" src="/static/components/qp-filter.js?v=24"></script>
+    <script type="module" src="/static/components/qp-dashboard.js?v=24"></script>
+    <script type="module" src="/static/components/qp-library.js?v=24"></script>
+    <script type="module" src="/static/components/qp-lora-manager.js?v=24"></script>
+    <script type="module" src="/static/app.js?v=24"></script>
 </body>
 
 </html>

@@ -210,7 +210,7 @@ class QpSettings extends HTMLElement {
         this.attachShadow({ mode: 'open' });
         this.formats = [];
         this.selectedDimension = "1024*1024";
-        this.selectedOutputFormat = "png";
+        this.selectedOutputFormat = "webp";
         this.hasRendered = false;
     }
     connectedCallback() {
@@ -221,8 +221,13 @@ class QpSettings extends HTMLElement {
         try {
             const res = await fetch('/config');
             const data = await res.json();
-            if (data.settings && data.settings.FORMATS) {
-                this.formats = data.settings.FORMATS;
+            if (data.settings) {
+                if (data.settings.FORMATS) {
+                    this.formats = data.settings.FORMATS;
+                }
+                if (data.settings.IMAGE_FORMAT) {
+                    this.selectedOutputFormat = data.settings.IMAGE_FORMAT;
+                }
                 this.hasRendered = false; // Re-render to show options
                 this.render();
             }
@@ -243,9 +248,7 @@ class QpSettings extends HTMLElement {
         if (values.width && values.height) {
             this.selectedDimension = `${values.width}*${values.height}`;
         }
-        if (values.output_format) {
-            this.selectedOutputFormat = values.output_format;
-        }
+        this.selectedOutputFormat = values.output_format || this.selectedOutputFormat;
 
         this.hasRendered = false;
         this.render();
@@ -417,6 +420,7 @@ class QpRender extends HTMLElement {
         const promptEl = document.querySelector('qp-prompt');
         let settingsEl = document.querySelector('qp-settings');
         const stylesEl = document.querySelector('qp-styles');
+        const loraManager = document.querySelector('qp-lora-manager');
 
         if (!promptEl) {
             window.qpyt_app.notify("Missing 'Prompt' brick!", "danger");
@@ -501,7 +505,8 @@ class QpRender extends HTMLElement {
                         denoising_strength: (image || mask) ? this.denoisingStrength : undefined,
                         ...genSettings,
                         seed: genSettings.seed ? genSettings.seed + i : null,
-                        output_format: genSettings.output_format
+                        output_format: genSettings.output_format,
+                        loras: loraManager ? loraManager.getValues().loras : []
                     })
                 });
 
@@ -510,6 +515,12 @@ class QpRender extends HTMLElement {
                 if (result.status === 'success') {
                     successCount++;
                     this.lastImageUrl = result.data.image_url;
+
+                    // Show Warnings if any
+                    if (result.data.warnings && result.data.warnings.length > 0) {
+                        result.data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
+                    }
+
                     if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
 
                     // Signal global output
@@ -1339,6 +1350,7 @@ class QpOutpaint extends QpRender {
 
             // Standard Gather Params
             const promptEl = document.querySelector('qp-prompt');
+            const loraManager = document.querySelector('qp-lora-manager');
             const settingsEl = document.querySelector('qp-settings');
             const { prompt, negative_prompt } = promptEl ? promptEl.getValue() : { prompt: "", negative_prompt: "" };
             const settings = settingsEl ? settingsEl.getValue() : {};
@@ -1363,13 +1375,20 @@ class QpOutpaint extends QpRender {
                     width: width,
                     height: height,
                     ...settings,
-                    denoising_strength: forceStrength
+                    denoising_strength: forceStrength,
+                    loras: loraManager ? loraManager.getValues().loras : []
                 })
             });
 
             const result = await response.json();
             if (result.status === 'success') {
                 this.lastImageUrl = result.data.image_url;
+
+                // Show Warnings if any
+                if (result.data.warnings && result.data.warnings.length > 0) {
+                    result.data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
+                }
+
                 if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
                 // Signal global output
                 window.dispatchEvent(new CustomEvent('qpyt-output', {
@@ -1443,8 +1462,31 @@ class QpOutpaint extends QpRender {
         });
     }
 
+    updateUI() {
+        const update = (dir, val, prop) => {
+            const el = this.shadowRoot.querySelector(`.vis-${dir}`);
+            if (el) {
+                el.textContent = val;
+                el.style[prop] = (val / 2) + 'px';
+            }
+            const range = this.shadowRoot.getElementById(`r-${dir}`);
+            if (range) {
+                const label = range.previousElementSibling?.querySelectorAll('span')[1];
+                if (label) label.textContent = `${val}px`;
+            }
+        };
+
+        update('top', this.expandTop, 'height');
+        update('btm', this.expandBottom, 'height');
+        update('left', this.expandLeft, 'width');
+        update('right', this.expandRight, 'width');
+    }
+
     render() {
-        if (this.hasRendered) return;
+        if (this.hasRendered) {
+            this.updateUI();
+            return;
+        }
         this.hasRendered = true;
 
         const brickId = this.getAttribute('brick-id') || '';
@@ -1487,11 +1529,14 @@ class QpOutpaint extends QpRender {
                     border: 1px solid rgba(16, 185, 129, 0.5);
                     display: flex; align-items: center; justify-content: center;
                     font-size: 0.7rem; color: #10b981;
+                    /* Transitions for smooth updates */
+                    transition: all 0.1s ease-out;
                 }
-                .vis-top { bottom: 100%; left: 0; right: 0; height: ${this.expandTop / 2}px; }
-                .vis-btm { top: 100%; left: 0; right: 0; height: ${this.expandBottom / 2}px; }
-                .vis-left { right: 100%; top: 0; bottom: 0; width: ${this.expandLeft / 2}px; }
-                .vis-right { left: 100%; top: 0; bottom: 0; width: ${this.expandRight / 2}px; }
+                /* Initial Positions */
+                .vis-top { bottom: 100%; left: 0; right: 0; height: 0px; }
+                .vis-btm { top: 100%; left: 0; right: 0; height: 0px; }
+                .vis-left { right: 100%; top: 0; bottom: 0; width: 0px; }
+                .vis-right { left: 100%; top: 0; bottom: 0; width: 0px; }
 
                 /* Native Range Styling */
                 .range-group {
@@ -1525,10 +1570,10 @@ class QpOutpaint extends QpRender {
                     <div class="preview-zone">
                         <div class="box-center">
                             IMG
-                            <div class="indicator vis-top">${this.expandTop}</div>
-                            <div class="indicator vis-btm">${this.expandBottom}</div>
-                            <div class="indicator vis-left">${this.expandLeft}</div>
-                            <div class="indicator vis-right">${this.expandRight}</div>
+                            <div class="indicator vis-top"></div>
+                            <div class="indicator vis-btm"></div>
+                            <div class="indicator vis-left"></div>
+                            <div class="indicator vis-right"></div>
                         </div>
                     </div>
 
@@ -1559,16 +1604,15 @@ class QpOutpaint extends QpRender {
             </qp-cartridge>
         `;
 
+        // Initial UI Update
+        this.updateUI();
+
         const bind = (id, prop) => {
             const el = this.shadowRoot.getElementById(id);
-            // Native input event is 'input' or 'change'
             if (el) {
                 el.addEventListener('input', (e) => {
                     this[prop] = parseInt(e.target.value);
-                    // Minimal manual update of label to avoid full re-render on slide
-                    // But for now full re-render is safer for the preview box update
-                    this.hasRendered = false;
-                    this.render();
+                    this.updateUI(); // Update UI without re-rendering DOM
                 });
             }
         };
@@ -1607,6 +1651,7 @@ class QpUpscaler extends QpRender {
         if (this.isGenerating || !window.qpyt_app) return;
 
         const promptEl = document.querySelector('qp-prompt');
+        const loraManager = document.querySelector('qp-lora-manager');
         const settingsEl = document.querySelector('qp-settings');
         const stylesEl = document.querySelector('qp-styles');
 
@@ -1658,6 +1703,7 @@ class QpUpscaler extends QpRender {
                     denoising_strength: this.denoisingStrength,
                     tile_size: this.tileSize,
                     output_format: settings.output_format || "png",
+                    loras: loraManager ? loraManager.getValues().loras : [],
                     ...settings
                 })
             });
@@ -1665,6 +1711,12 @@ class QpUpscaler extends QpRender {
             const result = await response.json();
             if (result.status === 'success') {
                 this.lastImageUrl = result.data.image_url;
+
+                // Show Warnings if any
+                if (result.data.warnings && result.data.warnings.length > 0) {
+                    result.data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
+                }
+
                 if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
 
                 // Signal global output

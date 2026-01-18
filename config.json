@@ -7,7 +7,7 @@
     "OUTPUT_DIR": "outputs",
     "DEFAULT_MODEL": "animaPencilXL_v100.safetensors",
     "DEVICE": "cuda",
-    "IMAGE_FORMAT": "png",
+    "IMAGE_FORMAT": "webp",
     "NEGATIVE_PROMPT": "deformed, ugly, blurry, pixelated, grainy, poorly drawn, artifacts, errors, duplicates, missing, inconsistent, unrealistic, bad anatomy, severed hands, severed heads, crossed eyes, poor quality, low resolution, washed out, overexposed, underexposed, noise, flat, lacking details, generic, amateur",
     "FORMATS": [
         {

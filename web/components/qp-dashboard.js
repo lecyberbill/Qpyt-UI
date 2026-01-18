@@ -37,11 +37,36 @@ class QpDashboard extends HTMLElement {
         }
     }
 
-    openLightbox(imageUrl) {
+    openLightbox(item) {
         const dialog = this.shadowRoot.querySelector('#lightbox');
         const img = this.shadowRoot.querySelector('#lightbox-img');
+        const promptArea = this.shadowRoot.querySelector('#lightbox-prompt');
+        const metaArea = this.shadowRoot.querySelector('#lightbox-meta');
+
         if (dialog && img) {
-            img.src = imageUrl;
+            const url = typeof item === 'string' ? item : item.image_url;
+            img.src = url;
+
+            if (promptArea) {
+                promptArea.textContent = (typeof item === 'object' ? (item.metadata?.prompt || item.prompt) : '') || 'No prompt info';
+            }
+            if (metaArea) {
+                const m = item.metadata || {};
+                if (typeof item === 'string' || Object.keys(m).length === 0) {
+                    metaArea.innerHTML = '';
+                } else {
+                    metaArea.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 1rem; font-size: 0.8rem; color: #94a3b8;">
+                        <div><strong>Seed:</strong> ${m.seed || 'N/A'}</div>
+                        <div><strong>Model:</strong> ${m.model_name || 'N/A'}</div>
+                        <div><strong>Steps:</strong> ${m.num_inference_steps || 'N/A'}</div>
+                        <div><strong>Guidance:</strong> ${m.guidance_scale || 'N/A'}</div>
+                        <div><strong>Res:</strong> ${m.width}x${m.height}</div>
+                        <div><strong>Time:</strong> ${item.execution_time?.toFixed(1)}s</div>
+                    </div>
+                `;
+                }
+            }
             dialog.show();
         }
     }
@@ -92,10 +117,12 @@ class QpDashboard extends HTMLElement {
                     transition: border-color 0.2s;
                     display: flex;
                     gap: 0.8rem;
+                    cursor: pointer;
                 }
 
                 .history-item:hover {
                     border-color: #6366f1;
+                    background: rgba(99, 102, 241, 0.05);
                 }
 
                 .thumb-container {
@@ -105,7 +132,6 @@ class QpDashboard extends HTMLElement {
                     background: #0f172a;
                     overflow: hidden;
                     flex-shrink: 0;
-                    cursor: pointer;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -164,16 +190,29 @@ class QpDashboard extends HTMLElement {
                 }
 
                 #lightbox::part(panel) {
-                    background: transparent;
-                    box-shadow: none;
-                    max-width: 90vw;
+                    background: #1e293b;
+                    border: 1px solid rgba(255,255,255,0.1);
+                    max-width: 900px;
+                    width: 90vw;
                 }
 
-                #lightbox img {
+                #lightbox-img {
                     width: 100%;
                     height: auto;
-                    border-radius: 12px;
-                    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+                    border-radius: 8px;
+                    margin-bottom: 1rem;
+                }
+
+                .prompt-display {
+                    background: rgba(0,0,0,0.3);
+                    padding: 1rem;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,0.05);
+                    color: #e2e8f0;
+                    font-style: italic;
+                    line-height: 1.4;
+                    max-height: 150px;
+                    overflow-y: auto;
                 }
             </style>
 
@@ -184,30 +223,34 @@ class QpDashboard extends HTMLElement {
             <sl-drawer label="Generation History" placement="start">
                 <div class="history-list">
                     ${this.history.length === 0 ? '<div style="text-align: center; color: #475569; margin-top: 2rem;">No history available</div>' : ''}
-                    ${this.history.map(item => `
-                        <div class="history-item">
+                    ${this.history.map((item, idx) => `
+                        <div class="history-item" data-index="${idx}">
                             <div class="thumb-container">
-                                ${item.image_url ? `<img src="${item.image_url}" class="history-thumb" data-url="${item.image_url}">` : '<sl-icon name="image" style="opacity: 0.2;"></sl-icon>'}
+                                ${item.image_url ? `<img src="${item.image_url}">` : '<sl-icon name="image" style="opacity: 0.2;"></sl-icon>'}
                             </div>
                             <div class="item-info">
                                 <div class="status-header">
                                     <span class="status-badge status-${item.status || 'success'}">${item.status === 'pending' ? '⏳' : item.status === 'error' ? '❌' : '✅'}</span>
                                     <span style="font-size: 0.7rem; color: #475569;">${item.timestamp}</span>
                                 </div>
-                                <div class="prompt-text">"${item.prompt}"</div>
+                                <div class="prompt-text">"${item.metadata?.prompt || item.prompt || 'No prompt'}"</div>
                                 <div class="meta">
                                     <span>${item.execution_time ? `${item.execution_time.toFixed(1)}s` : ''}</span>
-                                    <span>${(item.request_id || '').substring(0, 4)}</span>
+                                    <span>
+                                        ${item.metadata?.seed ? `Seed: ${item.metadata.seed}` : ''}
+                                        ${item.metadata?.width ? `[${item.metadata.width}x${item.metadata.height}]` : ''}
+                                    </span>
                                 </div>
                             </div>
                         </div>
                     `).join('')}
                 </div>
-                </div>
             </sl-drawer>
 
-            <sl-dialog id="lightbox" no-header>
+            <sl-dialog id="lightbox" label="Generation Details">
                 <img id="lightbox-img" src="">
+                <div class="prompt-display" id="lightbox-prompt"></div>
+                <div id="lightbox-meta"></div>
                 <sl-button slot="footer" variant="primary" id="close-lightbox">Close</sl-button>
             </sl-dialog>
         `;
@@ -219,11 +262,12 @@ class QpDashboard extends HTMLElement {
         this.shadowRoot.getElementById('open-dash').addEventListener('click', () => this.toggleDrawer());
 
         // Re-attach listeners for history items
-        this.shadowRoot.querySelectorAll('.history-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const img = item.querySelector('.history-thumb');
-                if (img && img.dataset.url) {
-                    this.openLightbox(img.dataset.url);
+        this.shadowRoot.querySelectorAll('.history-item').forEach(itemCard => {
+            itemCard.addEventListener('click', () => {
+                const idx = itemCard.dataset.index;
+                const data = this.history[idx];
+                if (data && data.image_url) {
+                    this.openLightbox(data);
                 }
             });
         });

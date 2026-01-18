@@ -19,6 +19,7 @@ class ImageGenerationRequest(BaseModel):
     denoising_strength: float = Field(0.5, ge=0.0, le=1.0, description="Force de transformation (0=identique, 1=nouveau)")
     batch_count: Optional[int] = Field(None, description="Nombre d'images à générer")
     output_format: str = Field("png", description="Format de sortie (png, jpeg, webp)")
+    loras: Optional[List[Dict[str, Any]]] = Field(None, description="Liste des LoRAs: [{'path': '...', 'weight': 1.0, 'enabled': True}]")
 
 # --- LE CONTRAT DE SORTIE ---
 class ImageGenerationResponse(BaseModel):
@@ -47,6 +48,7 @@ class UpscaleRequest(BaseModel):
     model_type: Optional[str] = "upscale"
     output_format: str = Field("png", description="Format de sortie (png, jpeg, webp)")
     seed: Optional[int] = None
+    loras: Optional[List[Dict[str, Any]]] = Field(None, description="LoRAs pour l'upscale")
 
 class RembgRequest(BaseModel):
     image: str = Field(..., description="Image source en Base64 ou chemin /view/")

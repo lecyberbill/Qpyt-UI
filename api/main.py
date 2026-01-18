@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from fastapi import UploadFile, File, Form
 from PIL import Image
 import io
+from api.history_log import HistoryLogManager
 
 # Log configuration
 LOG_DIR = Path(config.base_dir) / "logs"
@@ -65,14 +66,20 @@ app.mount("/view", StaticFiles(directory=config.OUTPUT_DIR), name="outputs")
 # /static -> web/
 app.mount("/static", StaticFiles(directory="web"), name="web")
 
-# Workflow Persistence Endpoints
+# Workflow & Presets Persistence Endpoints
 WORKFLOWS_DIR = Path(config.base_dir) / "workflows"
+PRESETS_DIR = Path(config.base_dir) / "presets"
 WORKFLOWS_DIR.mkdir(exist_ok=True)
+PRESETS_DIR.mkdir(exist_ok=True)
 
 @app.get("/workflows")
 async def list_workflows():
-    files = list(WORKFLOWS_DIR.glob("*.json"))
-    return sorted([f.stem for f in files])
+    user_files = list(WORKFLOWS_DIR.glob("*.json"))
+    system_files = list(PRESETS_DIR.glob("*.json"))
+    return {
+        "user": sorted([f.stem for f in user_files]),
+        "system": sorted([f.stem for f in system_files])
+    }
 
 @app.post("/workflows/save")
 async def save_workflow(request: Request):
@@ -108,8 +115,12 @@ async def load_workflow(request: Request):
         name = data.get("name")
         file_path = WORKFLOWS_DIR / f"{name}.json"
         
+        # Check in user workflows first, then in presets
         if not file_path.exists():
-            return JSONResponse(status_code=404, content={"status": "error", "message": "Workflow not found."})
+            file_path = PRESETS_DIR / f"{name}.json"
+            
+        if not file_path.exists():
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Workflow or Preset not found."})
             
         import json
         with open(file_path, "r", encoding="utf-8") as f:
@@ -127,6 +138,10 @@ async def delete_workflow(request: Request):
         data = await request.json()
         name = data.get("name")
         file_path = WORKFLOWS_DIR / f"{name}.json"
+        preset_path = PRESETS_DIR / f"{name}.json"
+
+        if preset_path.exists():
+             return JSONResponse(status_code=403, content={"status": "error", "message": "Factory presets cannot be deleted."})
         
         if not file_path.exists():
             return JSONResponse(status_code=404, content={"status": "error", "message": "Workflow not found."})
@@ -156,6 +171,12 @@ async def get_config():
     cfg = app_ui.get_config()
     cfg["settings"] = config.settings
     return cfg
+
+@app.get("/config/loras")
+async def get_loras():
+    """Returns the list of available LoRAs."""
+    from core.generator import list_loras
+    return {"status": "success", "loras": list_loras()}
 
 @app.post("/config/save")
 async def save_config(request: Request):
@@ -241,12 +262,20 @@ async def generate(request: ImageGenerationRequest):
             sampler_name=request.sampler_name,
             image=request.image,
             denoising_strength=request.denoising_strength,
-            output_format=request.output_format
+            output_format=request.output_format,
+            loras=request.loras
         )
         
         execution_time = time.time() - start_time
         full_image_url = f"/view/{image_url}"
         
+        # Add to HTML History Log
+        try:
+            output_dir = Path(config.OUTPUT_DIR) / image_url.split('/')[0]
+            HistoryLogManager.add_to_log(output_dir, image_url.split('/')[-1], used_params, execution_time)
+        except Exception as e:
+            logger.error(f"Failed to log to HTML: {e}")
+            
         # Return simple object for frontend mapping
         return {
             "status": "success",
@@ -255,6 +284,7 @@ async def generate(request: ImageGenerationRequest):
                 "image_url": full_image_url,
                 "execution_time": execution_time,
                 "metadata": used_params,
+                "warnings": used_params.get("lora_warnings", []),
                 "status": "success"
             }
         }
@@ -290,12 +320,20 @@ async def inpaint(req: InpaintRequest):
             image=req.image,
             mask=req.mask,
             denoising_strength=req.denoising_strength,
-            output_format=req.output_format
+            output_format=req.output_format,
+            loras=req.loras
         )
         if url is None:
             return JSONResponse({"status": "error", "message": "Generation interrupted or failed"}, status_code=400)
             
         execution_time = time.time() - start_time
+        # Add to HTML History Log
+        try:
+            output_dir = Path(config.OUTPUT_DIR) / url.split('/')[0]
+            HistoryLogManager.add_to_log(output_dir, url.split('/')[-1], params, execution_time)
+        except Exception as e:
+            logger.error(f"Failed to log to HTML: {e}")
+            
         return {
             "status": "success",
             "data": {
@@ -330,7 +368,8 @@ async def upscale(request: UpscaleRequest):
             negative_prompt=request.negative_prompt,
             model_name=request.model_name,
             output_format=request.output_format,
-            seed=request.seed
+            seed=request.seed,
+            loras=request.loras
         )
         
         execution_time = time.time() - start_time
@@ -343,6 +382,7 @@ async def upscale(request: UpscaleRequest):
                 "image_url": full_image_url,
                 "execution_time": execution_time,
                 "metadata": used_params,
+                "warnings": used_params.get("lora_warnings", []),
                 "status": "success"
             }
         }
@@ -473,19 +513,32 @@ async def get_logs():
 async def apply_filters(req: FilterRequest):
     try:
         # Decode input
-        if "," in req.image:
-            header, encoded = req.image.split(",", 1)
-        else:
-            header, encoded = "data:image/png;base64", req.image
+        # Decode input
+        if req.image.startswith("/view/") or req.image.startswith("http"):
+            # It's a URL path, likely /view/filename.png
+            filename = req.image.split("/")[-1]
+            file_path = config.OUTPUT_DIR / filename
+            if not file_path.exists():
+                return JSONResponse({"status": "error", "message": "File not found"}, status_code=404)
+            pil_image = Image.open(file_path)
             
-        import base64
-        # Validate base64
-        try:
+        elif "," in req.image:
+            header, encoded = req.image.split(",", 1)
+            import base64
             image_data = base64.b64decode(encoded)
-        except Exception:
-             return JSONResponse({"status": "error", "message": "Invalid Base64 string"}, status_code=400)
-
-        pil_image = Image.open(io.BytesIO(image_data))
+            pil_image = Image.open(io.BytesIO(image_data))
+        else:
+             # Assume Raw Base64 or local path if absolute
+            if ":" in req.image and "\\" in req.image: # Quick check for windows path
+                 pil_image = Image.open(req.image)
+            else:
+                import base64
+                header, encoded = "data:image/png;base64", req.image
+                try:
+                    image_data = base64.b64decode(encoded)
+                    pil_image = Image.open(io.BytesIO(image_data))
+                except:
+                     return JSONResponse({"status": "error", "message": "Invalid Image Source"}, status_code=400)
         
         def processing_task(img, settings):
             editor = ImageEditor(img)

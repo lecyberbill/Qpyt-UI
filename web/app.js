@@ -89,30 +89,44 @@ class QpytApp {
     }
 
     async fetchWorkflows() {
-        const listContainer = document.getElementById('workflow-list');
-        if (!listContainer) return;
+        const wfContainer = document.getElementById('workflow-list');
+        const prContainer = document.getElementById('preset-list');
+        if (!wfContainer || !prContainer) return;
 
         try {
             const response = await fetch('/workflows');
-            const list = await response.json();
+            const data = await response.json(); // { user: [], system: [] }
 
-            if (list.length === 0) {
-                listContainer.innerHTML = '<p style="color: #475569; font-style: italic; font-size: 0.8rem;">No workflows saved yet.</p>';
-                return;
+            // 1. Render User Workflows
+            if (data.user.length === 0) {
+                wfContainer.innerHTML = '<p style="color: #475569; font-style: italic; font-size: 0.8rem;">No workflows saved yet.</p>';
+            } else {
+                wfContainer.innerHTML = data.user.map(name => `
+                    <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                        <sl-icon name="journal-bookmark" style="color: #6366f1;"></sl-icon>
+                        <span style="flex: 1; font-size: 0.9rem;">${name}</span>
+                        <sl-button size="small" variant="neutral" onclick="window.qpyt_app.loadWorkflow('${name}')">Load</sl-button>
+                        <sl-button size="small" variant="danger" outline onclick="window.qpyt_app.deleteWorkflow('${name}')" title="Delete">
+                            <sl-icon name="trash"></sl-icon>
+                        </sl-button>
+                    </div>
+                `).join('');
             }
 
-            listContainer.innerHTML = list.map(name => `
-                <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                    <sl-icon name="journal-bookmark" style="color: #6366f1;"></sl-icon>
-                    <span style="flex: 1; font-size: 0.9rem;">${name}</span>
-                    <sl-button size="small" variant="neutral" onclick="window.qpyt_app.loadWorkflow('${name}')">Load</sl-button>
-                    <sl-button size="small" variant="danger" outline onclick="window.qpyt_app.deleteWorkflow('${name}')" title="Delete">
-                        <sl-icon name="trash"></sl-icon>
-                    </sl-button>
-                </div>
-            `).join('');
+            // 2. Render System Presets
+            if (data.system.length === 0) {
+                prContainer.innerHTML = '<p style="color: #475569; font-style: italic; font-size: 0.8rem;">No factory presets found.</p>';
+            } else {
+                prContainer.innerHTML = data.system.map(name => `
+                    <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); border-left: 3px solid #f59e0b;">
+                        <sl-icon name="magic" style="color: #f59e0b;"></sl-icon>
+                        <span style="flex: 1; font-size: 0.9rem; font-weight: 500;">${name.replace(/_/g, ' ')}</span>
+                        <sl-button size="small" variant="primary" outline onclick="window.qpyt_app.loadWorkflow('${name}')">Apply</sl-button>
+                    </div>
+                `).join('');
+            }
         } catch (e) {
-            listContainer.innerHTML = '<p style="color: #ef4444;">Failed to load list.</p>';
+            wfContainer.innerHTML = '<p style="color: #ef4444;">Failed to load lists.</p>';
         }
     }
 
