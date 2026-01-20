@@ -29,7 +29,8 @@ class QpytUI:
             {"id": "qp-inpaint", "label": "Inpainting", "type": "generator", "icon": "brush"},
             {"id": "qp-outpaint", "label": "Outpainting", "type": "generator", "icon": "arrows-angle-expand"},
             {"id": "qp-vectorize", "label": "Vectorize (SVG)", "type": "generator", "icon": "vector-pen"},
-            {"id": "qp-filter", "label": "Photo Editing", "type": "output", "icon": "sliders"}
+            {"id": "qp-filter", "label": "Photo Editing", "type": "output", "icon": "sliders"},
+            {"id": "qp-queue-monitor", "label": "Job Queue Monitor", "type": "setting", "icon": "collection"}
         ]
 
     def load_workflow(self, workflow_data: List[Dict[str, Any]]):
@@ -70,6 +71,7 @@ class QpytUI:
             "qp-rembg": 105,
             "qp-vectorize": 106,
             "qp-filter": 150,
+            "qp-queue-monitor": 11,
             "qp-image-out": 200,
             "qp-save-to-disk": 201,
         }

@@ -1,4 +1,4 @@
-# Qpyt-UI V0.9.6 TURBO
+# Qpyt-UI V0.9.7 TURBO
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -34,6 +34,7 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 - **Brick System**: Drag-and-drop modular interface.
 - **LoRA Manager**: Dynamic loading and blending of multiple LoRAs with weight synchronization and **Architectural Safety Checks** (SD 1.5 vs SDXL/Flux).
 - **Iterative Fallback**: Robust handling of incomplete GGUF/Safetensors models by automatically fetching missing components (VAE, CLIP, T5) from official repositories.
+- **Task Queue System**: Asynchronous job orchestration through a serialized `QueueManager`, preventing VRAM overflow by ensuring only one heavy task runs at a time.
 - **Session History Log**: Automatic generation of HTML reports including full metadata and LoRA configurations.
 - **Persistence**: Save, Load, and **Delete** complex node layouts as JSON workflows.
 - **State Management**: Circular dependencies and history tracking.
@@ -65,7 +66,8 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 5.  **Access**: Open `http://127.0.0.1:8000` in your browser.
 
 ## Version History
-*   **V0.9.6**: SD 3.5 Turbo NF4 Optimization, BFloat16 precision, Iterative GGUF/Safetensors Fallback, **Preset System Integration**.
+*   **V0.9.7**: **Task Queue System**, Serialized Worker, Job Monitor Brick, and Asynchronous API Refactor for VRAM stability.
+*   **V0.9.6**: SD 3.5 Turbo NF4 Optimization, BFloat16 precision, Iterative GGUF/Safetensors Fallback, Preset System Integration.
 *   **V0.9.5**: LoRA Manager with Architecture Check, HTML Session History Logs, UI Safety Warnings.
 *   **V0.9**: Photo Editor V2, Real-time Filters, Base64 Save System, Workflow Deletion.
 *   **V0.8**: Inpainting & Outpainting Overhaul.

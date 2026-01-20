@@ -3,10 +3,12 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+from watchfiles import awatch
 
 from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
@@ -25,6 +27,7 @@ from fastapi import UploadFile, File, Form
 from PIL import Image
 import io
 from api.history_log import HistoryLogManager
+from api.queue_manager import QueueManager, TaskStatus
 
 # Log configuration
 LOG_DIR = Path(config.base_dir) / "logs"
@@ -45,6 +48,39 @@ logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 app = FastAPI(title="Qpyt-UI API")
+
+@app.on_event("startup")
+async def startup_event():
+    queue_mgr = QueueManager.get_instance()
+    await queue_mgr.start_worker()
+    # Start file watcher for hot reload
+    asyncio.create_task(hot_reload_watcher())
+
+# Hot Reload logic
+connected_clients = set()
+
+@app.websocket("/ws/hot-reload")
+async def hot_reload_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    connected_clients.add(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        connected_clients.remove(websocket)
+
+async def hot_reload_watcher():
+    logger.info("Hot reload watcher started for 'web/' directory.")
+    async for changes in awatch("web/"):
+        logger.info(f"File changes detected: {changes}. Signaling reload...")
+        if connected_clients:
+            # We use a copy of the set to avoid issues if clients disconnect during broadcast
+            for client in list(connected_clients):
+                try:
+                    await client.send_text("reload")
+                except Exception as e:
+                    logger.error(f"Failed to send reload signal: {e}")
+                    connected_clients.remove(client)
 
 # Default Qpyt-UI configuration
 app_ui = QpytUI(title="Qpyt - UI V.09")
@@ -231,6 +267,32 @@ async def get_vaes():
 async def get_samplers():
     return {"status": "success", "samplers": list_samplers()}
 
+# Queue Management Endpoints
+@app.get("/queue/status/{task_id}")
+async def get_task_status(task_id: str):
+    queue_mgr = QueueManager.get_instance()
+    task = queue_mgr.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": "Task not found"}
+    return task
+
+@app.get("/queue/list")
+async def list_queue():
+    queue_mgr = QueueManager.get_instance()
+    return {"status": "success", "tasks": queue_mgr.list_tasks()}
+
+@app.post("/queue/cancel/{task_id}")
+async def cancel_task(task_id: str):
+    queue_mgr = QueueManager.get_instance()
+    success = queue_mgr.cancel_task(task_id)
+    return {"status": "success" if success else "error"}
+
+@app.post("/queue/clear")
+async def clear_queue():
+    queue_mgr = QueueManager.get_instance()
+    queue_mgr.clear_completed()
+    return {"status": "success"}
+
 @app.get("/generate/preview")
 async def get_preview():
     return {
@@ -240,192 +302,182 @@ async def get_preview():
         "total_steps": ModelManager._total_steps
     }
 
+# --- Task Wrappers for Queue Worker ---
+
+async def task_generate_wrapper(**kwargs):
+    # Clean up kwargs to match ModelManager.generate signature if needed
+    image_url, exec_time, used_params = await run_in_threadpool(
+        ModelManager.generate,
+        **kwargs
+    )
+    try:
+        output_dir = Path(config.OUTPUT_DIR) / image_url.split('/')[0]
+        HistoryLogManager.add_to_log(output_dir, image_url.split('/')[-1], used_params, exec_time)
+    except Exception as log_err:
+        logger.error(f"Failed to log generation: {log_err}")
+    
+    return {
+        "image_url": f"/view/{image_url}",
+        "execution_time": exec_time,
+        "metadata": used_params,
+        "warnings": used_params.get("lora_warnings", []),
+        "status": "success"
+    }
+
+async def task_upscale_wrapper(**kwargs):
+    image_url, exec_time, used_params = await run_in_threadpool(
+        ModelManager.upscale,
+        **kwargs
+    )
+    return {
+        "image_url": f"/view/{image_url}",
+        "execution_time": exec_time,
+        "metadata": used_params
+    }
+
+# --- Endpoints Refactored to use Queue ---
+
 @app.post("/generate")
 async def generate(request: ImageGenerationRequest):
-    logger.info(f"Request received ({request.model_type}): {request.prompt}")
-    start_time = time.time()
+    logger.info(f"Adding generation to queue ({request.model_type}): {request.prompt}")
+    queue_mgr = QueueManager.get_instance()
     
-    try:
-        # Async generation (via threadpool because generate is blocking)
-        image_url, exec_time, used_params = await run_in_threadpool(
-            ModelManager.generate,
-            prompt=request.prompt,
-            negative_prompt=request.negative_prompt,
-            model_type=request.model_type,
-            model_name=request.model_name,
-            width=request.width,
-            height=request.height,
-            guidance_scale=request.guidance_scale,
-            num_inference_steps=request.num_inference_steps,
-            seed=request.seed,
-            vae_name=request.vae_name,
-            sampler_name=request.sampler_name,
-            image=request.image,
-            denoising_strength=request.denoising_strength,
-            output_format=request.output_format,
-            loras=request.loras
-        )
-        
-        execution_time = time.time() - start_time
-        full_image_url = f"/view/{image_url}"
-        
-        # Add to HTML History Log
-        try:
-            output_dir = Path(config.OUTPUT_DIR) / image_url.split('/')[0]
-            HistoryLogManager.add_to_log(output_dir, image_url.split('/')[-1], used_params, execution_time)
-        except Exception as e:
-            logger.error(f"Failed to log to HTML: {e}")
-            
-        # Return simple object for frontend mapping
-        return {
-            "status": "success",
-            "data": {
-                "request_id": str(uuid.uuid4()),
-                "image_url": full_image_url,
-                "execution_time": execution_time,
-                "metadata": used_params,
-                "warnings": used_params.get("lora_warnings", []),
-                "status": "success"
-            }
-        }
-    except Exception as e:
-        logger.error(f"Error during generation: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
-        )
+    # We pass the wrapper function and its arguments
+    task_id = await queue_mgr.add_task(
+        "generate",
+        task_generate_wrapper,
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt,
+        model_type=request.model_type,
+        model_name=request.model_name,
+        width=request.width,
+        height=request.height,
+        guidance_scale=request.guidance_scale,
+        num_inference_steps=request.num_inference_steps,
+        seed=request.seed,
+        vae_name=request.vae_name,
+        sampler_name=request.sampler_name,
+        image=request.image,
+        denoising_strength=request.denoising_strength,
+        output_format=request.output_format,
+        loras=request.loras
+    )
+    
+    return {
+        "status": "queued",
+        "task_id": task_id
+    }
 
 @app.post("/inpaint")
-async def inpaint(req: InpaintRequest):
-    logger.info(f"Inpaint request received ({req.model_type}): {req.prompt}")
-    logger.info(f"Mask length: {len(req.mask) if req.mask else 0}, Image length: {len(req.image) if req.image else 0}")
-    request_id = uuid.uuid4()
-    start_time = time.time()
-    try:
-        url, exec_time, params = await run_in_threadpool(
-            ModelManager.generate,
-            prompt=req.prompt,
-            negative_prompt=req.negative_prompt,
-            model_type=req.model_type,
-            model_name=req.model_name,
-            width=req.width,
-            height=req.height,
-            guidance_scale=req.guidance_scale,
-            num_inference_steps=req.num_inference_steps,
-            seed=req.seed,
-            vae_name=req.vae_name,
-            sampler_name=req.sampler_name,
-            image=req.image,
-            mask=req.mask,
-            denoising_strength=req.denoising_strength,
-            output_format=req.output_format,
-            loras=req.loras
-        )
-        if url is None:
-            return JSONResponse({"status": "error", "message": "Generation interrupted or failed"}, status_code=400)
-            
-        execution_time = time.time() - start_time
-        # Add to HTML History Log
-        try:
-            output_dir = Path(config.OUTPUT_DIR) / url.split('/')[0]
-            HistoryLogManager.add_to_log(output_dir, url.split('/')[-1], params, execution_time)
-        except Exception as e:
-            logger.error(f"Failed to log to HTML: {e}")
-            
-        return {
-            "status": "success",
-            "data": {
-                "request_id": str(request_id),
-                "image_url": f"/view/{url}",
-                "execution_time": execution_time,
-                "metadata": params,
-                "status": "success"
-            }
-        }
-    except Exception as e:
-        logger.error(f"Inpaint error: {e}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+async def inpaint(request: InpaintRequest):
+    logger.info(f"Adding inpaint to queue ({request.model_type}): {request.prompt}")
+    queue_mgr = QueueManager.get_instance()
+    
+    task_id = await queue_mgr.add_task(
+        "inpaint",
+        task_generate_wrapper,
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt,
+        model_type=request.model_type,
+        model_name=request.model_name,
+        width=request.width,
+        height=request.height,
+        guidance_scale=request.guidance_scale,
+        num_inference_steps=request.num_inference_steps,
+        seed=request.seed,
+        vae_name=request.vae_name,
+        sampler_name=request.sampler_name,
+        image=request.image,
+        mask=request.mask,
+        denoising_strength=request.denoising_strength,
+        output_format=request.output_format,
+        loras=request.loras,
+        is_inpaint=True
+    )
+    
+    return {"status": "queued", "task_id": task_id}
 
 @app.post("/outpaint")
-async def outpaint(req: OutpaintRequest):
-    logger.info(f"Outpaint request received: {req.prompt}")
-    return await inpaint(req)
-async def upscale(request: UpscaleRequest):
-    logger.info(f"Upscale request received: {request.scale_factor}x")
-    start_time = time.time()
-    try:
-        image_url, exec_time, used_params = await run_in_threadpool(
-            ModelManager.upscale,
-            image_base64=request.image,
-            scale_factor=request.scale_factor,
-            denoising_strength=request.denoising_strength,
-            tile_size=request.tile_size,
-            prompt=request.prompt,
-            negative_prompt=request.negative_prompt,
-            model_name=request.model_name,
-            output_format=request.output_format,
-            seed=request.seed,
-            loras=request.loras
-        )
-        
-        execution_time = time.time() - start_time
-        full_image_url = f"/view/{image_url}"
-        
-        return {
-            "status": "success",
-            "data": {
-                "request_id": str(uuid.uuid4()),
-                "image_url": full_image_url,
-                "execution_time": execution_time,
-                "metadata": used_params,
-                "warnings": used_params.get("lora_warnings", []),
-                "status": "success"
-            }
-        }
-    except Exception as e:
-        logger.error(f"Error during upscale: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
-        )
+async def outpaint(request: OutpaintRequest):
+    logger.info(f"Adding outpaint to queue: {request.prompt}")
+    queue_mgr = QueueManager.get_instance()
+    
+    task_id = await queue_mgr.add_task(
+        "outpaint",
+        task_generate_wrapper,
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt,
+        model_type="sdxl", # Outpaint forced to SDXL for now
+        width=request.width,
+        height=request.height,
+        guidance_scale=request.guidance_scale,
+        num_inference_steps=request.num_inference_steps,
+        seed=request.seed,
+        image=request.image,
+        mask=request.mask,
+        denoising_strength=request.denoising_strength,
+        is_inpaint=True
+    )
+    
+    return {"status": "queued", "task_id": task_id}
 
+@app.post("/upscale")
+async def upscale(request: UpscaleRequest):
+    logger.info(f"Adding upscale to queue for image data")
+    queue_mgr = QueueManager.get_instance()
+    
+    task_id = await queue_mgr.add_task(
+        "upscale",
+        task_upscale_wrapper,
+        image_base64=request.image,
+        scale_factor=request.scale_factor,
+        denoising_strength=request.denoising_strength,
+        tile_size=request.tile_size,
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt,
+        model_name=request.model_name,
+        output_format=request.output_format,
+        seed=request.seed,
+        loras=request.loras
+    )
+    
+    return {"status": "queued", "task_id": task_id}
 @app.post("/rembg")
 async def rembg(request: RembgRequest):
-    logger.info("Background removal request received")
-    start_time = time.time()
-    try:
+    logger.info("Adding background removal to queue")
+    queue_mgr = QueueManager.get_instance()
+    
+    async def task_rembg_wrapper(image_input):
         from core.rembg_service import remove_background
-        image_url = await run_in_threadpool(
-            remove_background,
-            image_input=request.image
-        )
-        
-        execution_time = time.time() - start_time
-        full_image_url = f"/view/{image_url}"
-        
+        start_time = time.time()
+        image_url = await run_in_threadpool(remove_background, image_input=image_input)
         return {
-            "status": "success",
-            "data": {
-                "request_id": str(uuid.uuid4()),
-                "image_url": full_image_url,
-                "execution_time": execution_time,
-                "status": "success"
-            }
+            "image_url": f"/view/{image_url}",
+            "execution_time": time.time() - start_time
         }
-    except Exception as e:
-        logger.error(f"Error during rembg: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
-        )
+
+    task_id = await queue_mgr.add_task("rembg", task_rembg_wrapper, request.image)
+    return {"status": "queued", "task_id": task_id}
+
+@app.post("/vectorize")
+async def vectorize(request: Request):
+    # Vectorize usually comes from direct prompt or result, let's assume it has basic params
+    data = await request.json()
+    image_base64 = data.get("image")
+    logger.info("Adding vectorization to queue")
+    queue_mgr = QueueManager.get_instance()
+
+    async def task_vectorize_wrapper(image_data):
+        from core.analyzer import vectorize_image
+        start_time = time.time()
+        image_url = await run_in_threadpool(vectorize_image, image_data=image_data)
+        return {
+            "image_url": f"/view/{image_url}",
+            "execution_time": time.time() - start_time
+        }
+
+    task_id = await queue_mgr.add_task("vectorize", task_vectorize_wrapper, image_base64)
+    return {"status": "queued", "task_id": task_id}
 
 @app.post("/save-to-disk")
 async def save_to_disk_endpoint(request: SaveToDiskRequest):

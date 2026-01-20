@@ -414,8 +414,57 @@ class QpRender extends HTMLElement {
         }
     }
 
+    async submitAndPollTask(endpoint, payload) {
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const submission = await response.json();
+            if (submission.status === 'queued') {
+                const taskId = submission.task_id;
+                // Polling loop
+                while (true) {
+                    if (!this.isGenerating) {
+                        // Attempt to cancel if we stopped
+                        fetch(`/queue/cancel/${taskId}`, { method: 'POST' }).catch(() => { });
+                        return null;
+                    }
+                    const statusResp = await fetch(`/queue/status/${taskId}`);
+                    const task = await statusResp.json();
+
+                    if (task.status === 'COMPLETED') {
+                        if (task.result && typeof task.result === 'object') {
+                            task.result.request_id = taskId;
+                        }
+                        return task.result;
+                    }
+                    if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+                        throw new Error(task.error || "Task failed or was cancelled");
+                    }
+                    // Wait 1s before next poll
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            } else if (submission.status === 'success') {
+                return submission.data;
+            } else {
+                throw new Error(submission.message || "Failed to submit task");
+            }
+        } catch (e) {
+            console.error("[Queue Polling Error]", e);
+            throw e;
+        }
+    }
+
     async generate() {
-        if (this.isGenerating || !window.qpyt_app) return;
+        if (!window.qpyt_app) return;
+
+        // Multi-tasking support: allow multiple queued tasks
+        if (!this._activeTasks) this._activeTasks = 0;
+        this.isGenerating = true;
+        // Don't render yet, we'll do it after adding tasks
 
         const promptEl = document.querySelector('qp-prompt');
         let settingsEl = document.querySelector('qp-settings');
@@ -475,91 +524,97 @@ class QpRender extends HTMLElement {
         if (this.previewInterval) clearInterval(this.previewInterval);
         this.previewInterval = setInterval(() => this.pollPreview(), 500);
 
+        // Refactored to submit ALL tasks in the batch immediately to the queue.
+        // This ensures the batch stays together and is not interleaved by other concurrent bricks.
+        if (batch_count > 1) this._activeTasks += (batch_count - 1);
+
+        const runOne = async (index) => {
+            const endpoint = isInpaint ? '/inpaint' : (isOutpaint ? '/outpaint' : '/generate');
+            const payload = {
+                prompt,
+                negative_prompt,
+                model_type: this.modelType,
+                model_name: this.selectedModel,
+                sampler_name: this.selectedSampler,
+                vae_name: this.selectedVae || null,
+                image: image,
+                mask: mask,
+                denoising_strength: (image || mask) ? this.denoisingStrength : undefined,
+                ...genSettings,
+                seed: genSettings.seed ? genSettings.seed + index : null,
+                output_format: genSettings.output_format,
+                loras: loraManager ? loraManager.getValues().loras : []
+            };
+
+            try {
+                const data = await this.submitAndPollTask(endpoint, payload);
+                if (!data) return;
+
+                console.log(`[Batch ${index + 1}/${batch_count}] Completed:`, data);
+                successCount++;
+                this.lastImageUrl = data.image_url;
+                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+
+                // Update UI status for the last finished one
+                this.batchInfo = batch_count > 1 ? ` (${successCount}/${batch_count})` : '';
+
+                // Signal global output
+                window.dispatchEvent(new CustomEvent('qpyt-output', {
+                    detail: {
+                        url: this.lastImageUrl,
+                        brickId: this.getAttribute('brick-id'),
+                        params: {
+                            seed: data.metadata?.seed || null,
+                            prompt: prompt,
+                            model: this.selectedModel
+                        }
+                    },
+                    bubbles: true,
+                    composed: true
+                }));
+
+                const dashboard = document.querySelector('qp-dashboard');
+                if (dashboard) dashboard.addEntry(data);
+
+                // Show Warnings if any
+                if (data.warnings && data.warnings.length > 0) {
+                    data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
+                }
+            } catch (e) {
+                console.error(`[Batch ${index}]`, e);
+            } finally {
+                this._activeTasks--;
+                if (this._activeTasks <= 0) {
+                    this._activeTasks = 0;
+                    this.isGenerating = false;
+                    if (this.previewInterval) {
+                        clearInterval(this.previewInterval);
+                        this.previewInterval = null;
+                    }
+                }
+                this.render();
+            }
+        };
+
         try {
+            const batchPromises = [];
             for (let i = 0; i < batch_count; i++) {
                 if (!this.isGenerating) break;
-
-                console.log(`[Batch] Generating ${i + 1}/${batch_count}`);
-                this.currentStep = 0;
-                this.totalSteps = 0;
-                this.lastImageUrl = '';
-                this.batchInfo = batch_count > 1 ? ` (${i + 1}/${batch_count})` : '';
-                this.updateStatus();
-
-                const endpoint = isInpaint ? '/inpaint' : (isOutpaint ? '/outpaint' : '/generate');
-
-                // Mask is already captured above
-
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt,
-                        negative_prompt,
-                        model_type: this.modelType,
-                        model_name: this.selectedModel,
-                        sampler_name: this.selectedSampler,
-                        vae_name: this.selectedVae || null,
-                        image: image,
-                        mask: mask,
-                        denoising_strength: (image || mask) ? this.denoisingStrength : undefined,
-                        ...genSettings,
-                        seed: genSettings.seed ? genSettings.seed + i : null,
-                        output_format: genSettings.output_format,
-                        loras: loraManager ? loraManager.getValues().loras : []
-                    })
-                });
-
-                const result = await response.json();
-                console.log("[Generate] Response:", result);
-                if (result.status === 'success') {
-                    successCount++;
-                    this.lastImageUrl = result.data.image_url;
-
-                    // Show Warnings if any
-                    if (result.data.warnings && result.data.warnings.length > 0) {
-                        result.data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
-                    }
-
-                    if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
-
-                    // Signal global output
-                    window.dispatchEvent(new CustomEvent('qpyt-output', {
-                        detail: {
-                            url: this.lastImageUrl,
-                            brickId: this.getAttribute('brick-id'),
-                            params: {
-                                seed: result.data.metadata?.seed || null,
-                                prompt: prompt,
-                                model: this.selectedModel
-                            }
-                        },
-                        bubbles: true,
-                        composed: true
-                    }));
-
-                    const dashboard = document.querySelector('qp-dashboard');
-                    if (dashboard) {
-                        dashboard.addEntry(result.data);
-                    }
-                } else {
-                    window.qpyt_app.notify(`Error: ${result.message}`, "danger");
-                    break;
-                }
+                this._activeTasks++;
+                batchPromises.push(runOne(i));
             }
+            this.render(); // Initial render with all tasks added
+            await Promise.all(batchPromises);
+
             if (successCount > 0) {
                 window.qpyt_app.notify("Generation complete", "success");
             }
-        } catch (e) {
+        }
+        catch (e) {
             console.error(e);
             window.qpyt_app.notify("Connection error", "danger");
         } finally {
-            if (this.previewInterval) {
-                clearInterval(this.previewInterval);
-                this.previewInterval = null;
-            }
-            this.isGenerating = false;
-            this.hasRendered = false; // Force re-render for final state
+            this.hasRendered = false;
             this.render();
         }
     }
@@ -775,25 +830,33 @@ class QpRender extends HTMLElement {
                     ` : ''}
                     
                     <div class="status-area" id="preview-area" style="${this.lastImageUrl ? 'cursor: pointer;' : ''}">
-                        ${this.isGenerating ? '' : (this.lastImageUrl ? `
+                        ${this.lastImageUrl ? `
                             <img src="${this.lastImageUrl}" alt="Generated image">
                         ` : `
                             <sl-icon name="image" style="font-size: 3rem; opacity: 0.3;"></sl-icon>
                             <div style="font-size: 0.9rem;">Ready to generate</div>
-                        `)}
+                        `}
+                        ${this.isGenerating ? `
+                            <div style="position: absolute; inset:0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 10;">
+                                <sl-spinner style="font-size: 2rem; --indicator-color: #10b981;"></sl-spinner>
+                                ${this._activeTasks > 1 ? `
+                                    <div style="position:absolute; bottom:10px; right:10px; background:#10b981; color:white; padding:2px 8px; border-radius:10px; font-size:0.7rem; font-weight:800;">
+                                        ${this._activeTasks} JOBS
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : ''}
                     </div>
                     
-                    ${this.isGenerating ? `
-                        <sl-button class="stop-btn" variant="danger" size="large" id="stop-btn">
-                            <sl-icon slot="prefix" name="stop-fill"></sl-icon>
-                            Stop
-                        </sl-button>
-                    ` : `
-                        <sl-button class="gen-btn" variant="primary" size="large" id="gen-btn">
+                    <div style="display: flex; gap: 0.5rem; width: 100%;">
+                        <sl-button class="gen-btn" variant="primary" size="large" id="gen-btn" style="flex: 3;">
                             <sl-icon slot="prefix" name="play-fill"></sl-icon>
                             Generate
                         </sl-button>
-                    `}
+                        <sl-button class="stop-btn" variant="danger" size="large" id="stop-btn" outline style="flex: 1;">
+                            <sl-icon name="stop-fill"></sl-icon>
+                        </sl-button>
+                    </div>
                 </div>
             </qp-cartridge>
         `;
@@ -1321,7 +1384,11 @@ class QpOutpaint extends QpRender {
     }
 
     async generate() {
-        if (this.isGenerating || !window.qpyt_app) return;
+        if (!window.qpyt_app) return;
+        if (!this._activeTasks) this._activeTasks = 0;
+        this._activeTasks++;
+        this.isGenerating = true;
+        this.render();
 
         const imageSource = document.querySelector('qp-image-input');
         let srcBase64 = imageSource?.getImage() || null;
@@ -1358,54 +1425,51 @@ class QpOutpaint extends QpRender {
             console.log(`[Outpaint] Sending request: ${width}x${height}`);
 
             // Force Denoising Strength to 1.0 for Outpainting
-            // We are generating 100% new content in the masked areas (which are flat grey).
-            // Any value < 1.0 will try to "preserve" the grey color.
             const forceStrength = 1.0;
 
-            const response = await fetch('/inpaint', { // Re-use inpaint endpoint
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt,
-                    negative_prompt,
-                    model_type: this.modelType,
-                    model_name: this.selectedModel,
-                    image: image,
-                    mask: mask,
-                    width: width,
-                    height: height,
-                    ...settings,
-                    denoising_strength: forceStrength,
-                    loras: loraManager ? loraManager.getValues().loras : []
-                })
-            });
+            const payload = {
+                prompt,
+                negative_prompt,
+                model_type: this.modelType,
+                model_name: this.selectedModel,
+                image: image,
+                mask: mask,
+                width: width,
+                height: height,
+                ...settings,
+                denoising_strength: forceStrength,
+                loras: loraManager ? loraManager.getValues().loras : []
+            };
 
-            const result = await response.json();
-            if (result.status === 'success') {
-                this.lastImageUrl = result.data.image_url;
+            const data = await this.submitAndPollTask('/inpaint', payload);
+            if (!data) return; // Interrupted
 
-                // Show Warnings if any
-                if (result.data.warnings && result.data.warnings.length > 0) {
-                    result.data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
-                }
+            console.log("[Outpaint] Completed:", data);
+            this.lastImageUrl = data.image_url;
 
-                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
-                // Signal global output
-                window.dispatchEvent(new CustomEvent('qpyt-output', {
-                    detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
-                    bubbles: true,
-                    composed: true
-                }));
-                window.qpyt_app.notify("Outpainting complete!", "success");
-            } else {
-                window.qpyt_app.notify(`Error: ${result.message}`, "danger");
+            // Show Warnings if any
+            if (data.warnings && data.warnings.length > 0) {
+                data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
             }
+
+            if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+            // Signal global output
+            window.dispatchEvent(new CustomEvent('qpyt-output', {
+                detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                bubbles: true,
+                composed: true
+            }));
+            window.qpyt_app.notify("Outpainting complete!", "success");
 
         } catch (e) {
             console.error(e);
             window.qpyt_app.notify("Outpainting failed", "danger");
         } finally {
-            this.isGenerating = false;
+            this._activeTasks--;
+            if (this._activeTasks <= 0) {
+                this._activeTasks = 0;
+                this.isGenerating = false;
+            }
             this.hasRendered = false;
             this.render();
         }
@@ -1596,10 +1660,21 @@ class QpOutpaint extends QpRender {
                         </div>
                     </div>
 
-                    <sl-button variant="primary" size="medium" style="width:100%" id="btn-gen" ?loading="${this.isGenerating}">
-                        <sl-icon slot="prefix" name="arrows-angle-expand"></sl-icon>
-                        Outpaint
-                    </sl-button>
+                    <div style="display: flex; gap: 0.5rem; width: 100%; position: relative;">
+                        <sl-button variant="primary" size="medium" style="flex: 3;" id="btn-gen">
+                            <sl-icon slot="prefix" name="arrows-angle-expand"></sl-icon>
+                            Outpaint
+                        </sl-button>
+                        <sl-button variant="danger" size="medium" style="flex: 1;" id="btn-stop" outline>
+                            <sl-icon name="stop-fill"></sl-icon>
+                        </sl-button>
+
+                        ${this.isGenerating ? `
+                            <div style="position: absolute; top: -30px; right: 0; background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 800; z-index: 10;">
+                                ${this._activeTasks || 1} JOBS
+                            </div>
+                        ` : ''}
+                    </div>
                 </div>
             </qp-cartridge>
         `;
@@ -1630,6 +1705,8 @@ class QpOutpaint extends QpRender {
         }
 
         this.shadowRoot.getElementById('btn-gen').onclick = () => this.generate();
+        const stopBtn = this.shadowRoot.getElementById('btn-stop');
+        if (stopBtn) stopBtn.onclick = () => this.isGenerating = false;
     }
 }
 customElements.define('qp-outpaint', QpOutpaint);
@@ -1648,7 +1725,11 @@ class QpUpscaler extends QpRender {
 
     async generate() {
         // Override generate to use /upscale endpoint
-        if (this.isGenerating || !window.qpyt_app) return;
+        if (!window.qpyt_app) return;
+        if (!this._activeTasks) this._activeTasks = 0;
+        this._activeTasks++;
+        this.isGenerating = true;
+        this.render();
 
         const promptEl = document.querySelector('qp-prompt');
         const loraManager = document.querySelector('qp-lora-manager');
@@ -1690,63 +1771,63 @@ class QpUpscaler extends QpRender {
             this.lastImageUrl = '';
             this.updateStatus();
 
-            const response = await fetch('/upscale', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt,
-                    negative_prompt,
-                    model_type: this.modelType,
-                    model_name: this.selectedModel,
-                    image: image,
-                    upscale_factor: this.upscaleFactor,
-                    denoising_strength: this.denoisingStrength,
-                    tile_size: this.tileSize,
-                    output_format: settings.output_format || "png",
-                    loras: loraManager ? loraManager.getValues().loras : [],
-                    ...settings
-                })
-            });
+            const payload = {
+                prompt,
+                negative_prompt,
+                model_type: this.modelType,
+                model_name: this.selectedModel,
+                image: image,
+                upscale_factor: this.upscaleFactor,
+                denoising_strength: this.denoisingStrength,
+                tile_size: this.tileSize,
+                output_format: settings.output_format || "png",
+                loras: loraManager ? loraManager.getValues().loras : [],
+                ...settings
+            };
 
-            const result = await response.json();
-            if (result.status === 'success') {
-                this.lastImageUrl = result.data.image_url;
+            const data = await this.submitAndPollTask('/upscale', payload);
+            if (!data) return; // Interrupted
 
-                // Show Warnings if any
-                if (result.data.warnings && result.data.warnings.length > 0) {
-                    result.data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
-                }
+            console.log("[Upscaler] Completed:", data);
+            this.lastImageUrl = data.image_url;
 
-                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
-
-                // Signal global output
-                window.dispatchEvent(new CustomEvent('qpyt-output', {
-                    detail: {
-                        url: this.lastImageUrl,
-                        brickId: this.getAttribute('brick-id'),
-                        params: {
-                            seed: result.data.metadata?.seed || null,
-                            prompt: prompt,
-                            model: this.selectedModel,
-                            upscale_factor: this.upscaleFactor
-                        }
-                    },
-                    bubbles: true,
-                    composed: true
-                }));
-
-                const dashboard = document.querySelector('qp-dashboard');
-                if (dashboard) dashboard.addEntry(result.data);
-                window.qpyt_app.notify("Upscale complete", "success");
-            } else {
-                window.qpyt_app.notify(`Error: ${result.message}`, "danger");
+            // Show Warnings if any
+            if (data.warnings && data.warnings.length > 0) {
+                data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
             }
-        } catch (e) {
+
+            if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+
+            // Signal global output
+            window.dispatchEvent(new CustomEvent('qpyt-output', {
+                detail: {
+                    url: this.lastImageUrl,
+                    brickId: this.getAttribute('brick-id'),
+                    params: {
+                        seed: data.metadata?.seed || null,
+                        prompt: prompt,
+                        model: this.selectedModel,
+                        upscale_factor: this.upscaleFactor
+                    }
+                },
+                bubbles: true,
+                composed: true
+            }));
+
+            const dashboard = document.querySelector('qp-dashboard');
+            if (dashboard) dashboard.addEntry(data);
+            window.qpyt_app.notify("Upscale complete", "success");
+        }
+        catch (e) {
             console.error(e);
             window.qpyt_app.notify("Connection error", "danger");
         } finally {
-            if (this.previewInterval) clearInterval(this.previewInterval);
-            this.isGenerating = false;
+            this._activeTasks--;
+            if (this._activeTasks <= 0) {
+                this._activeTasks = 0;
+                this.isGenerating = false;
+                if (this.previewInterval) clearInterval(this.previewInterval);
+            }
             this.hasRendered = false;
             this.render();
         }
@@ -1885,7 +1966,11 @@ class QpRembg extends HTMLElement {
     }
 
     async generate() {
-        if (this.isGenerating || !window.qpyt_app) return;
+        if (!window.qpyt_app) return;
+        if (!this._activeTasks) this._activeTasks = 0;
+        this._activeTasks++;
+        this.isGenerating = true;
+        this.render();
 
         const imageSource = document.querySelector('qp-image-input');
         let image = imageSource?.getImage() || null;
@@ -1910,29 +1995,49 @@ class QpRembg extends HTMLElement {
                 body: JSON.stringify({ image })
             });
 
-            const result = await response.json();
-            if (result.status === 'success') {
-                this.lastImageUrl = result.data.image_url;
-                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+            const submission = await response.json();
+            if (submission.status === 'queued') {
+                const taskId = submission.task_id;
+                while (true) {
+                    if (!this.isGenerating) break;
+                    const statusResp = await fetch(`/queue/status/${taskId}`);
+                    const task = await statusResp.json();
+                    if (task.status === 'COMPLETED') {
+                        const data = task.result;
+                        if (data && typeof data === 'object') {
+                            data.request_id = taskId;
+                        }
+                        this.lastImageUrl = data.image_url;
+                        if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
 
-                // Signal global output
-                window.dispatchEvent(new CustomEvent('qpyt-output', {
-                    detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
-                    bubbles: true,
-                    composed: true
-                }));
+                        // Signal global output
+                        window.dispatchEvent(new CustomEvent('qpyt-output', {
+                            detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                            bubbles: true,
+                            composed: true
+                        }));
 
-                const dashboard = document.querySelector('qp-dashboard');
-                if (dashboard) dashboard.addEntry(result.data);
-                window.qpyt_app.notify("Background removed!", "success");
-            } else {
-                window.qpyt_app.notify(`Error: ${result.message}`, "danger");
+                        const dashboard = document.querySelector('qp-dashboard');
+                        if (dashboard) dashboard.addEntry(data);
+                        window.qpyt_app.notify("Background removed!", "success");
+                        break;
+                    }
+                    if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+                        throw new Error(task.error || "Rembg task failed");
+                    }
+                    await new Promise(r => setTimeout(r, 1000));
+                }
             }
-        } catch (e) {
+        }
+        catch (e) {
             console.error(e);
             window.qpyt_app.notify("Connection error", "danger");
         } finally {
-            this.isGenerating = false;
+            this._activeTasks--;
+            if (this._activeTasks <= 0) {
+                this._activeTasks = 0;
+                this.isGenerating = false;
+            }
             this.render();
         }
     }
@@ -1973,11 +2078,21 @@ class QpRembg extends HTMLElement {
                         Input: Last generation or Source
                     </div>
                     
-                    <sl-button variant="primary" size="medium" @click="${() => this.generate()}" 
-                               ?loading="${this.isGenerating}" style="width: 100%;">
-                        <sl-icon slot="prefix" name="scissors"></sl-icon>
-                        Extract Foreground
-                    </sl-button>
+                    <div style="display: flex; gap: 0.5rem; width: 100%; position: relative;">
+                        <sl-button variant="primary" size="medium" id="btn-gen" style="flex: 3;">
+                            <sl-icon slot="prefix" name="scissors"></sl-icon>
+                            Extract Foreground
+                        </sl-button>
+                        <sl-button variant="danger" size="medium" id="btn-stop" outline style="flex: 1;">
+                            <sl-icon name="stop-fill"></sl-icon>
+                        </sl-button>
+
+                        ${this.isGenerating ? `
+                            <div style="position: absolute; top: -30px; right: 0; background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 800; z-index: 10;">
+                                ${this._activeTasks || 1} JOBS
+                            </div>
+                        ` : ''}
+                    </div>
                     
                     ${this.isGenerating ? `
                         <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; font-style: italic;">
@@ -1988,7 +2103,9 @@ class QpRembg extends HTMLElement {
             </qp-cartridge>
         `;
 
-        this.shadowRoot.querySelector('sl-button').onclick = () => this.generate();
+        this.shadowRoot.getElementById('btn-gen').onclick = () => this.generate();
+        const stopBtn = this.shadowRoot.getElementById('btn-stop');
+        if (stopBtn) stopBtn.onclick = () => this.isGenerating = false;
     }
 }
 customElements.define('qp-rembg', QpRembg);
@@ -2011,7 +2128,11 @@ class QpVectorize extends HTMLElement {
     }
 
     async generate() {
-        if (this.isGenerating || !window.qpyt_app) return;
+        if (!window.qpyt_app) return;
+        if (!this._activeTasks) this._activeTasks = 0;
+        this._activeTasks++;
+        this.isGenerating = true;
+        this.render();
 
         if (typeof ImageTracer === 'undefined') {
             window.qpyt_app?.notify("ImageTracer library not loaded yet.", "warning");
@@ -2066,6 +2187,17 @@ class QpVectorize extends HTMLElement {
                         composed: true
                     }));
 
+                    const dashboard = document.querySelector('qp-dashboard');
+                    if (dashboard) {
+                        dashboard.addEntry({
+                            request_id: 'vec-' + Date.now(),
+                            image_url: this.lastSvgUrl,
+                            prompt: "SVG Vectorization",
+                            metadata: { mode: this.selectedMode, colors: this.colorPrecision },
+                            status: 'success'
+                        });
+                    }
+
                     window.qpyt_app.notify("SVG Vectorization complete!", "success");
                     this.isGenerating = false;
                     this.render();
@@ -2073,7 +2205,12 @@ class QpVectorize extends HTMLElement {
             } catch (e) {
                 console.error("[Vectorize] Error:", e);
                 window.qpyt_app.notify("Vectorization failed", "danger");
-                this.isGenerating = false;
+            } finally {
+                this._activeTasks--;
+                if (this._activeTasks <= 0) {
+                    this._activeTasks = 0;
+                    this.isGenerating = false;
+                }
                 this.render();
             }
         }, 50);
@@ -2146,11 +2283,21 @@ class QpVectorize extends HTMLElement {
                     <sl-range id="prec-range" label="Color Precision" min="2" max="64" step="1" value="${this.colorPrecision}" 
                               help-text="${this.colorPrecision} colors targets. More colors = more paths."></sl-range>
                     
-                    <sl-button variant="primary" size="medium" id="btn-vec" 
-                               ?loading="${this.isGenerating}" style="width: 100%;">
-                        <sl-icon slot="prefix" name="vector-pen"></sl-icon>
-                        Browser-Vectorize
-                    </sl-button>
+                    <div style="display: flex; gap: 0.5rem; width: 100%; position: relative;">
+                        <sl-button variant="primary" size="medium" id="btn-gen" style="flex: 3;">
+                            <sl-icon slot="prefix" name="vector-pen"></sl-icon>
+                            Vectorize
+                        </sl-button>
+                        <sl-button variant="danger" size="medium" id="btn-stop" outline style="flex: 1;">
+                            <sl-icon name="stop-fill"></sl-icon>
+                        </sl-button>
+
+                        ${this.isGenerating ? `
+                            <div style="position: absolute; top: -30px; right: 0; background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 800; z-index: 10;">
+                                ${this._activeTasks || 1} JOBS
+                            </div>
+                        ` : ''}
+                    </div>
 
                     ${this.lastSvgUrl ? `
                         <div class="preview-svg">
@@ -2177,7 +2324,9 @@ class QpVectorize extends HTMLElement {
             this.colorPrecision = e.target.value;
             this.render(); // Re-render for help-text
         });
-        this.shadowRoot.getElementById('btn-vec')?.addEventListener('click', () => this.generate());
+        this.shadowRoot.getElementById('btn-gen').onclick = () => this.generate();
+        const stopBtn = this.shadowRoot.getElementById('btn-stop');
+        if (stopBtn) stopBtn.onclick = () => this.isGenerating = false;
     }
 }
 customElements.define('qp-vectorize', QpVectorize);

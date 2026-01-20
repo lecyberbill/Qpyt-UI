@@ -1,0 +1,33 @@
+[
+    {
+        "id": "queue-1",
+        "type": "qp-queue-monitor",
+        "props": {}
+    },
+    {
+        "id": "prompt-1",
+        "type": "qp-prompt",
+        "props": {
+            "prompt": "Cyberpunk city, neon lights, rainy street, cinematic, 8k"
+        }
+    },
+    {
+        "id": "settings-1",
+        "type": "qp-settings",
+        "props": {
+            "width": 1024,
+            "height": 1024,
+            "batch_count": 4
+        }
+    },
+    {
+        "id": "gen-1",
+        "type": "qp-render-sdxl",
+        "props": {}
+    },
+    {
+        "id": "out-1",
+        "type": "qp-image-out",
+        "props": {}
+    }
+]

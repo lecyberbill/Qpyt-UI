@@ -165,13 +165,48 @@
     <script src="/static/js/imagetracer.js"></script>
 
     <!-- Framework Scripts -->
-    <script type="module" src="/static/components/qp-cartridge.js?v=24"></script>
-    <script type="module" src="/static/components/qp-bricks.js?v=24"></script>
-    <script type="module" src="/static/components/qp-filter.js?v=24"></script>
-    <script type="module" src="/static/components/qp-dashboard.js?v=24"></script>
-    <script type="module" src="/static/components/qp-library.js?v=24"></script>
-    <script type="module" src="/static/components/qp-lora-manager.js?v=24"></script>
-    <script type="module" src="/static/app.js?v=24"></script>
+    <script type="module" src="/static/components/qp-cartridge.js?v=25"></script>
+    <script type="module" src="/static/components/qp-bricks.js?v=25"></script>
+    <script type="module" src="/static/components/qp-filter.js?v=25"></script>
+    <script type="module" src="/static/components/qp-dashboard.js?v=25"></script>
+    <script type="module" src="/static/components/qp-library.js?v=25"></script>
+    <script type="module" src="/static/components/qp-lora-manager.js?v=25"></script>
+    <script type="module" src="/static/components/qp-queue-monitor.js?v=25"></script>
+    <script type="module" src="/static/app.js?v=25"></script>
+
+    <!-- Hot Reload Script -->
+    <script>
+        (function () {
+            let socket;
+            let reconnectInterval = 2000;
+
+            function connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/hot-reload`;
+                socket = new WebSocket(wsUrl);
+
+                socket.onmessage = (event) => {
+                    if (event.data === 'reload') {
+                        console.log('🔄 Hot Reload triggered...');
+                        window.location.reload();
+                    }
+                };
+
+                socket.onclose = () => {
+                    console.log('📡 Hot reload disconnected. Retrying in ' + reconnectInterval + 'ms...');
+                    setTimeout(connect, reconnectInterval);
+                };
+
+                socket.onerror = (err) => {
+                    console.error('❌ Hot reload socket error:', err);
+                    socket.close();
+                };
+            }
+
+            connect();
+            console.log('🚀 Hot reload active.');
+        })();
+    </script>
 </body>
 
 </html>

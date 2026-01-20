@@ -3,15 +3,15 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V0.9.6 (NF4 & Stability)
-**Goal**: Optimized SD 3.5 Turbo, BFloat16 precision, and robust model loading.
+**Current Version**: V0.9.7 (Task Queue & VRAM Stability)
+**Goal**: Asynchronous task orchestration, serialized worker, and real-time job monitoring.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
     - **Imaging**: Diffusers (SDXL, FLUX, SD3.5).
     - **Vision**: Florence-2 (Prompt generation from images).
     - **Translation**: MarianMT (Helsinki-NLP) for FR -> EN prompt support.
     - **Cognitive**: Qwen2.5 (LLM for prompt enhancement).
-- **VRAM Strategy**: Intelligent offloading (CPU/GPU) with NF4/T5-NF4 for SD 3.5 and iterative component loading for robust GGUF/Safetensors support.
+- **VRAM Strategy**: Intelligent offloading (CPU/GPU) with NF4/T5-NF4 for SD 3.5. **Task Serialization**: New `QueueManager` worker ensures only one heavy GPU task runs at a time, preventing OOM crashes during concurrent requests.
 - **Environment Constraint**: **USE `.venv`**. All commands, package checks, and executions must be performed within the project's virtual environment (`.venv`). Do not use system-level Python.
 
 ## 2. Key Technical Milestones
@@ -75,6 +75,21 @@ This document tracks architectural decisions, implemented features, and the road
     - Created `tests/test_loader.py` to verify model loading states and API stability.
     - Integrated environment-aware regression testing (using `.venv`).
 
+### Task Queue System & Concurrent Stability (V0.9.7 Updates)
+- **Serialized Job Queue**:
+    - Implemented `api/queue_manager.py` (Singleton) with an `asyncio.Queue` and a dedicated background worker.
+    - Serializes all heavy generation (SDXL, Flux, Upscale) and processing (Rembg) tasks to prevent VRAM overflow.
+- **Asynchronous API Refactor**:
+    - Converted `/generate`, `/inpaint`, `/outpaint`, `/upscale`, and `/rembg` into "Fire and Forget" endpoints.
+    - Endpoints now return a `task_id` immediately, allowing the UI to remain responsive and submit multiple jobs.
+- **Frontend Job Monitor**:
+    - Created `qp-queue-monitor.js` (System Brick, Red) to track pending, running, and completed tasks.
+    - Integrated **Auto-Polling** and **Cancel** functionality with real-time progress bar support.
+- **Architecture Integration**:
+    - Refactored `QpRender` base class to support `submitAndPollTask` lifecycle, maintaining standard generation flow while leveraging the backend queue.
+- **Queue-Optimized Preset**:
+    - Added `SDXL_Queue_Optimized.json` including the new Job Monitor and pre-configured for batch generation.
+
 ## 3. Memory & Performance Strategy
 - **SDXL/Flux**: Use of `enable_model_cpu_offload()` to stay under 12GB VRAM.
 - **Lazy Loading**: Secondary models (Florence, Translator) are only loaded on demand.
@@ -100,6 +115,7 @@ This document tracks architectural decisions, implemented features, and the road
 
 ### Finalization
 - [x] **Preset System**: Library of pre-configured workflows.
+- [x] **Task Queue System**: Asynchronous worker and job monitoring for VRAM stability.
 
 ## 5. Version History
 - **V0.1 - V0.2**: PoC and Cartridge system (Micro-Gradio).
@@ -112,6 +128,7 @@ This document tracks architectural decisions, implemented features, and the road
 - **V0.9**: Photo Editor V2, Real-time Filters, Base64 Save System, Workflow Deletion.
 - **V0.9.5**: LoRA Manager with Architecture Check, HTML Session History Logs, UI Safety Warnings.
 - **V0.9.6**: SD 3.5 Turbo NF4 Optimization, BFloat16 precision, Iterative GGUF/Safetensors Fallback.
+- **V0.9.7**: Task Queue System, Serialized Worker, Job Monitor Brick, and Asynchronous API Refactor.
 
 ---
 
