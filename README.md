@@ -118,8 +118,14 @@ The project requires a configuration file to know where your models are stored.
     *   *Note: If the folders don't exist, the validation script will attempt to create them.*
 
 ### 5. Validate Installation ✅
-Run the included verification script to ensure everything is set up correctly:
+Run the included verification script to ensure everything is set up correctly (make sure your **venv is activated**):
 ```bash
+# Windows
+.\venv\Scripts\activate
+python verify_install.py
+
+# Mac/Linux
+source venv/bin/activate
 python verify_install.py
 ```
 *If you see any [FAIL] messages, correct the issues (missing folders, CUDA not found) before proceeding.*

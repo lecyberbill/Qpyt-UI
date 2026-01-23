@@ -23,6 +23,12 @@ def verify_install():
     print(" Qpyt-UI Installation Validator")
     print("="*60)
 
+    # 0. Check Environment (Venv)
+    is_venv = (sys.prefix != sys.base_prefix)
+    if not is_venv:
+        print_status("Running outside of a virtual environment (venv)!", "WARN")
+        print_status("It is highly recommended to run this script within an activated venv.", "WARN")
+
     # 1. Python Version
     py_ver = sys.version_info
     if py_ver.major == 3 and py_ver.minor >= 10:
