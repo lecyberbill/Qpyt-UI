@@ -28,6 +28,9 @@ class QpytApp {
             // Setup Workflow Manager
             this.setupWorkflows();
 
+            // Setup Drag & Drop
+            this.setupDragAndDrop();
+
             console.log("Qpyt-UI initialized with config:", config);
         } catch (e) {
             console.error("Qpyt-UI failed to initialize:", e);
@@ -303,6 +306,38 @@ class QpytApp {
         }
     }
 
+    setupDragAndDrop() {
+        if (!this.workflow) return;
+
+        // Prevent default drag behaviors on container
+        this.workflow.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const afterElement = this.getDragAfterElement(this.workflow, e.clientX);
+            const draggable = document.querySelector('.dragging');
+            if (!draggable) return;
+            if (afterElement == null) {
+                this.workflow.appendChild(draggable);
+            } else {
+                this.workflow.insertBefore(draggable, afterElement);
+            }
+        });
+    }
+
+    getDragAfterElement(container, x) {
+        const draggableElements = [...container.querySelectorAll('[draggable="true"]:not(.dragging)')];
+
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            // We are dragging horizontally
+            const offset = x - box.left - box.width / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset: offset, element: child };
+            } else {
+                return closest;
+            }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
     mountWorkflow(bricks) {
         if (!this.workflow) return;
         console.log("[Workflow] Mounting bricks via innerHTML:", bricks);
@@ -311,17 +346,13 @@ class QpytApp {
             // Build the collective HTML string first to avoid DOMException on createElement
             let html = bricks.map(brick => {
                 if (!brick.type) return '';
-                // We pass props as attributes for initial sync if possible
-                let propsAttr = "";
-                if (brick.props) {
-                    // Only serializable props like modelType can be passed as attr easily
-                }
-                return `<${brick.type} brick-id="${brick.id}"></${brick.type}>`;
+                // Add draggable attribute and proper styling hooks
+                return `<${brick.type} brick-id="${brick.id}" draggable="true" style="cursor: grab;"></${brick.type}>`;
             }).join('');
 
             this.workflow.innerHTML = html;
 
-            // Second pass: Assign props to elements now that they exist in DOM
+            // Second pass: Assign props & Setup Drag Events
             bricks.forEach(brick => {
                 if (!brick.type) return;
                 const el = this.workflow.querySelector(`[brick-id="${brick.id}"]`);
@@ -334,9 +365,24 @@ class QpytApp {
                             Object.assign(el, brick.props);
                         }
                     }
-                    // We REMOVED the explicit el.render() here because connectedCallback handles it once
+
+                    // Attach Drag Listeners
+                    el.addEventListener('dragstart', () => {
+                        el.classList.add('dragging');
+                        el.style.opacity = '0.5';
+                    });
+
+                    el.addEventListener('dragend', () => {
+                        el.classList.remove('dragging');
+                        el.style.opacity = '1';
+                    });
                 }
             });
+
+            // Init container listeners if not already done (idempotent check needed? setupDragAndDrop handles listener addition only once ideally)
+            // But doing it here repeatedly is risky if not careful. 
+            // Better to call setupDragAndDrop once in init().
+
         } catch (err) {
             console.error("[Workflow] Critical error during string-based mount:", err);
             this.workflow.innerHTML = `<div style="padding: 2rem; color: #ef4444;">Workflow Error: ${err.message}</div>`;

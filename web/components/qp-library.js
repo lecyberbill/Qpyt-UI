@@ -58,12 +58,17 @@ class QpLibrary extends HTMLElement {
             generators: {
                 label: "Generators (AI)",
                 icon: "magic",
-                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-sd35turbo", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager"]
+                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-sd35turbo", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager", "qp-controlnet"]
+            },
+            audio: {
+                label: "Generators (Audio)",
+                icon: "music-note-beamed",
+                ids: ["qp-music-gen"]
             },
             utilities: {
                 label: "Utilities & FX",
                 icon: "layers",
-                ids: ["qp-upscaler", "qp-rembg", "qp-vectorize", "qp-filter"]
+                ids: ["qp-upscaler", "qp-rembg", "qp-depth-estimator", "qp-normal-map", "qp-openpose-editor", "qp-vectorize", "qp-filter"]
             },
             system: {
                 label: "Export & Settings",
@@ -119,12 +124,14 @@ class QpLibrary extends HTMLElement {
                 .brick-item[data-type="input"]:hover { border-color: #a855f7; }
                 .brick-item[data-type="generator"]:hover { border-color: #10b981; }
                 .brick-item[data-type="setting"]:hover { border-color: #ef4444; }
+                .brick-item[data-type="tool"]:hover { border-color: #a855f7; }
                 .brick-item[data-type="output"]:hover { border-color: #f59e0b; }
                 
                 .icon { font-size: 1.4rem; }
                 .brick-item[data-type="input"] .icon { color: #a855f7; }
                 .brick-item[data-type="generator"] .icon { color: #10b981; }
                 .brick-item[data-type="setting"] .icon { color: #ef4444; }
+                .brick-item[data-type="tool"] .icon { color: #a855f7; }
                 .brick-item[data-type="output"] .icon { color: #f59e0b; }
 
                 .details { flex: 1; }
@@ -137,6 +144,7 @@ class QpLibrary extends HTMLElement {
                 .type-badge[data-type="input"] { background: #a855f7; }
                 .type-badge[data-type="generator"] { background: #10b981; }
                 .type-badge[data-type="setting"] { background: #ef4444; }
+                .type-badge[data-type="tool"] { background: #a855f7; }
                 .type-badge[data-type="output"] { background: #f59e0b; }
 
                 sl-tab-group {

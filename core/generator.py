@@ -26,8 +26,16 @@ from diffusers import (
     FluxTransformer2DModel,
     AutoencoderKL,
     SD3Transformer2DModel,
-    BitsAndBytesConfig
-)
+    StableDiffusion3InpaintPipeline,
+    AutoPipelineForInpainting,
+    GGUFQuantizationConfig,
+    QuantoConfig,
+    FluxTransformer2DModel,
+    AutoencoderKL,
+    SD3Transformer2DModel,
+    BitsAndBytesConfig,
+    StableDiffusionXLControlNetPipeline,
+    ControlNetModel)
 from transformers import CLIPTextModel, T5EncoderModel, T5TokenizerFast
 # Suppress CLIP token limit warnings for Flux (as we rely on T5)
 import logging
@@ -55,6 +63,9 @@ class ModelManager:
     _current_model_type = None # 'sdxl', 'flux', 'sd3'
     _current_is_img2img = False
     _current_is_inpaint = False
+    _current_is_inpaint = False
+    _current_has_controlnet = False # Track if current pipe has ControlNet
+    _current_controlnet_name = None # Track specific ControlNet model
     _current_dtype = torch.float16
     _interrupt_flag = False
     _current_preview = None # Base64 string of the last preview
@@ -140,6 +151,8 @@ class ModelManager:
             cls._compel = None
             cls._current_model_path = None
             cls._current_model_type = None
+            cls._current_has_controlnet = False
+            cls._current_controlnet_name = None
             
             # GC first, then clear cache
             gc.collect()
@@ -261,7 +274,8 @@ class ModelManager:
 
     @classmethod
     def get_pipeline(cls, model_type: str, model_path: str, vae_name: Optional[str] = None, 
-                     sampler_name: Optional[str] = None, is_img2img: bool = False, is_inpaint: bool = False):
+                     sampler_name: Optional[str] = None, is_img2img: bool = False, is_inpaint: bool = False,
+                     controlnet_model_name: Optional[str] = None):
         # Normalize VAE name
         if vae_name == 'Default' or not vae_name:
             vae_name = None
@@ -286,8 +300,23 @@ class ModelManager:
             # Check if we are already loaded with the right model and path
             if cls._current_model_path == model_path and cls._current_model_type == model_type:
                 # If only the task type (Txt2Img vs Img2Img) changed, try a fast structural switch
-                if cls._current_is_img2img != is_img2img or cls._current_is_inpaint != is_inpaint:
-                    mode_name = "Inpaint" if is_inpaint else ("Img2Img" if is_img2img else "Txt2Img")
+                # BUT if ControlNet requirement changed, we MUST reload/adapt
+                # BUT if ControlNet requirement changed, we MUST reload/adapt
+                has_controlnet = bool(controlnet_model_name)
+                
+                if (cls._current_is_img2img != is_img2img or 
+                    cls._current_is_inpaint != is_inpaint or 
+                    cls._current_has_controlnet != has_controlnet or
+                    cls._current_controlnet_name != controlnet_model_name):
+                    
+                    if (cls._current_has_controlnet != has_controlnet or 
+                        cls._current_controlnet_name != controlnet_model_name):
+                         # ControlNet injection/removal is non-trivial for structural switch in diffusers (requires different pipe class init)
+                         # Simple approach: full reload if controlnet status changes
+                         print("ControlNet changed, full reload required.")
+                         cls.unload_current_model()
+                    else:
+                        mode_name = "Inpaint" if is_inpaint else ("Img2Img" if is_img2img else "Txt2Img")
                     print(f"Switching pipeline mode to {mode_name}...")
                     try:
                         # Map base models for from_pipe
@@ -459,10 +488,21 @@ class ModelManager:
                 print(f"Loading local SDXL model ({'Inpaint' if is_inpaint else ('Img2Img' if is_img2img else 'Txt2Img')}): {model_path}")
                 if is_inpaint:
                     pipeline_class = StableDiffusionXLInpaintPipeline
+                elif controlnet_model_name:
+                    pipeline_class = StableDiffusionXLControlNetPipeline
+                    print(f"Loading ControlNet: {controlnet_model_name}")
                 elif is_img2img:
                     pipeline_class = StableDiffusionXLImg2ImgPipeline
                 else:
                     pipeline_class = StableDiffusionXLPipeline
+                
+                # Special case: If ControlNet is requested, we START with the base pipeline
+                # and then upgrade it, because loading ControlNetPipeline directly from a single file
+                # checkpoint often fails with config mismatch errors.
+                if controlnet_model_name:
+                     print(f"Loading base pipeline for ControlNet: {model_path}")
+                     pipeline_class = StableDiffusionXLPipeline
+
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=FutureWarning, message=".*upcast_vae.*")
                     cls._pipeline = pipeline_class.from_single_file(
@@ -471,6 +511,46 @@ class ModelManager:
                         use_safetensors=True,
                         variant="fp16"
                     )
+                
+                # Load ControlNet Model if requested
+                if controlnet_model_name:
+                    try:
+                        # Construct full path if it's a local file name
+                        cn_path = Path(config.get('CONTROLNET_DIR', 'models/controlnet')) / controlnet_model_name
+                        print(f"Loading ControlNet weights from {cn_path}...")
+                        
+                        if cn_path.is_file() or str(cn_path).endswith(('.safetensors', '.pth', '.ckpt')):
+                             controlnet = ControlNetModel.from_single_file(
+                                str(cn_path),
+                                torch_dtype=torch.float16
+                             )
+                        else:
+                             # Assume directory or HF repo
+                             controlnet = ControlNetModel.from_pretrained(
+                                controlnet_model_name,
+                                torch_dtype=torch.float16,
+                                variant="fp16" if "hf.co" not in controlnet_model_name else None
+                             )
+
+                        # Robust pipeline swap using components
+                        print("Swapping to ControlNet Pipeline using components...")
+                        components = cls._pipeline.components
+                        components["controlnet"] = controlnet
+                        cls._pipeline = StableDiffusionXLControlNetPipeline(**components)
+                        
+                        cls._pipeline = StableDiffusionXLControlNetPipeline(**components)
+                        
+                        cls._current_has_controlnet = True
+                        cls._current_controlnet_name = controlnet_model_name
+                    except Exception as e:
+                        import traceback
+                        print(traceback.format_exc())
+                        print(f"Failed to load ControlNet: {e}")
+                        raise e
+                else:
+                    cls._current_has_controlnet = False
+                    cls._current_controlnet_name = None
+
                 if hasattr(cls._pipeline, "vae") and cls._pipeline.vae is not None:
                     # Align VAE with pipeline to avoid RuntimeError (Input type Half vs Bias Float)
                     cls._pipeline.vae.to(device=config.DEVICE, dtype=torch.float16)
@@ -659,7 +739,8 @@ class ModelManager:
                     cls._pipeline.enable_attention_slicing()
 
             # 4. Standard optimizations (xformers)
-            if config.DEVICE == "cuda":
+            # Skip for Flux as it uses native SDPA efficiently and xformers can conflict with offloading
+            if config.DEVICE == "cuda" and model_type != 'flux':
                 try:
                     import xformers
                     cls._pipeline.enable_xformers_memory_efficient_attention()
@@ -670,7 +751,9 @@ class ModelManager:
             cls._current_model_path = model_path
             cls._current_model_type = model_type
             cls._current_is_img2img = is_img2img
+            cls._current_is_img2img = is_img2img
             cls._current_is_inpaint = is_inpaint
+            cls._current_has_controlnet = bool(controlnet_model_name)
             print(f"{model_type} model loaded successfully.")
 
         else:
@@ -716,7 +799,9 @@ class ModelManager:
                  guidance_scale: float = 7.0, num_inference_steps: int = 30, seed: int = None, 
                  vae_name: str = None, sampler_name: str = None, image: str = None, 
                  denoising_strength: float = 0.5, output_format: str = "png", mask: str = None,
-                 loras: Optional[list] = None):
+                 loras: Optional[list] = None,
+                 controlnet_image: str = None, controlnet_conditioning_scale: float = 0.7,
+                 controlnet_model: str = None):
         """
         Génère une image (ou transforme une existante) à partir des paramètres.
         """
@@ -758,6 +843,11 @@ class ModelManager:
         is_now_img2img = bool(image)
         is_now_inpaint = bool(mask)
         
+        # Prepare Mode Name for logging
+        mode_name = "Txt2Img"
+        if is_now_img2img: mode_name = "Img2Img"
+        if is_now_inpaint: mode_name = "Inpaint"
+
         # Pipeline
         pipe, compel = ModelManager.get_pipeline(
             model_type=model_type, 
@@ -765,7 +855,8 @@ class ModelManager:
             vae_name=vae_name, 
             sampler_name=sampler_name,
             is_img2img=is_now_img2img,
-            is_inpaint=is_now_inpaint
+            is_inpaint=is_now_inpaint,
+            controlnet_model_name=controlnet_model if controlnet_image else None
         )
         active_pipe = pipe
         ModelManager.reset_interrupt()
@@ -921,7 +1012,6 @@ class ModelManager:
             "callback_on_step_end": interrupt_callback,
             "callback_on_step_end_tensor_inputs": ["latents"]
         }
-        # Prepare kwargs for Img2Img/Inpaint
         if is_now_inpaint:
             # Inpainting logic
             # Explicitly pass width/height to ensure pipeline respects image aspect ratio
@@ -932,13 +1022,38 @@ class ModelManager:
             # strength is used for inpainting control in some pipelines, or ignored in others
             kwargs["strength"] = denoising_strength
         elif is_now_img2img:
-            # Explicitly pass width/height
-            # kwargs.pop("width", None) <-- DO NOT POP
-            # kwargs.pop("height", None) <-- DO NOT POP
+             # Img2Img Logic
             kwargs["image"] = init_image
             kwargs["strength"] = denoising_strength
+        
+        # ControlNet Arguments Override
+        if controlnet_image and hasattr(pipe, "controlnet"):
+            print(f"Using ControlNet (Scale: {controlnet_conditioning_scale})")
             
-            # VAE Tiling/Slicing is already enabled in get_pipeline, no need for reload hooks here
+            # Decode Control Image
+            if controlnet_image.startswith("/view/"):
+                c_path = Path(config.OUTPUT_DIR) / controlnet_image.replace("/view/", "").lstrip("/")
+                cn_img = Image.open(c_path).convert("RGB")
+            else:
+                h_c, enc_c = controlnet_image.split(",", 1) if "," in controlnet_image else (None, controlnet_image)
+                cn_img = Image.open(BytesIO(base64.b64decode(enc_c))).convert("RGB")
+                
+            # Resize Control Image to match target
+            # Note: Control images usually need to match the generation size
+            cn_img = cn_img.resize((width, height), Image.LANCZOS)
+            
+            # For StableDiffusionXLControlNetPipeline, the argument for the conditioning image is 'image'.
+            # If we were in Img2Img mode previously, 'image' was the init_image. 
+            # This conflict requires careful handling.
+            kwargs['image'] = cn_img 
+            kwargs['controlnet_conditioning_scale'] = controlnet_conditioning_scale
+            
+            # Ensure strength arg doesn't mess up Txt2Img ControlNet (it ignores it usually, but good to be clean)
+            if 'strength' in kwargs: 
+                del kwargs['strength']
+            
+            if is_now_img2img:
+                print("Warning: Both Img2Img Image and ControlNet Image provided. Ignoring Img2Img Image in favor of ControlNet Txt2Img.")
 
         if model_type == 'sdxl' and compel:
             conditioning, pooled = compel(prompt)
@@ -1304,3 +1419,18 @@ def list_loras() -> list:
     
     return sorted(loras)
 
+
+def list_controlnets():
+    path = config.get('CONTROLNET_DIR')
+    if not path or not os.path.exists(path):
+        return []
+    
+    files = []
+    for f in os.listdir(path):
+         # Include safetensors and pth (common for ControlNets)
+        if f.endswith((".safetensors", ".pth", ".bin")):
+            files.append(f)
+            
+    # Add common HF ID for convenience if local not found, or as option
+    # files.append("diffusers/controlnet-depth-sdxl-1.0") 
+    return sorted(files)

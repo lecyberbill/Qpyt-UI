@@ -1,0 +1,30 @@
+{
+    "MODELS_DIR": "models/checkpoints",
+    "VAE_DIR": "models/vae",
+    "LORAS_DIR": "models/loras",
+    "FLUX_MODELS_DIR": "models/flux",
+    "SD3_MODELS_DIR": "models/sd3",
+    "WAN_MODELS_DIR": "models/wan",
+    "DEPTH_MODEL_PATH": "models/depth",
+    "MUSICGEN_MODEL_PATH": "facebook/musicgen-medium",
+    "CONTROLNET_DIR": "models/controlnet",
+    "OUTPUT_DIR": "outputs",
+    "DEFAULT_MODEL": "animaPencilXL_v100.safetensors",
+    "DEVICE": "cuda",
+    "IMAGE_FORMAT": "webp",
+    "NEGATIVE_PROMPT": "deformed, ugly, blurry, pixelated, grainy, poorly drawn, artifacts, errors, duplicates, missing, inconsistent, unrealistic, bad anatomy, severed hands, severed heads, crossed eyes, poor quality, low resolution, washed out, overexposed, underexposed, noise, flat, lacking details, generic, amateur",
+    "FORMATS": [
+        {
+            "dimensions": "1024*1024",
+            "orientation": "Square"
+        },
+        {
+            "dimensions": "1152*896",
+            "orientation": "Landscape"
+        },
+        {
+            "dimensions": "896*1152",
+            "orientation": "Portrait"
+        }
+    ]
+}

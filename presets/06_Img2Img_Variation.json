@@ -1,0 +1,39 @@
+[
+    {
+        "id": "qp-image-input-006",
+        "type": "qp-image-input",
+        "props": {}
+    },
+    {
+        "id": "qp-prompt-006",
+        "type": "qp-prompt",
+        "props": {}
+    },
+    {
+        "id": "qp-settings-006",
+        "type": "qp-settings",
+        "props": {
+            "width": 1024,
+            "height": 1024,
+            "output_format": "jpeg"
+        }
+    },
+    {
+        "id": "qp-img2img-006",
+        "type": "qp-img2img",
+        "props": {
+            "denoisingStrength": 0.65,
+            "selectedModel": "sd_xl_base_1.0.safetensors"
+        }
+    },
+    {
+        "id": "qp-image-out-006",
+        "type": "qp-image-out",
+        "props": {}
+    },
+    {
+        "id": "qp-save-to-disk-006",
+        "type": "qp-save-to-disk",
+        "props": {}
+    }
+]

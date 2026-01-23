@@ -20,7 +20,9 @@ class ImageGenerationRequest(BaseModel):
     batch_count: Optional[int] = Field(None, description="Nombre d'images à générer")
     output_format: str = Field("png", description="Format de sortie (png, jpeg, webp)")
     loras: Optional[List[Dict[str, Any]]] = Field(None, description="Liste des LoRAs: [{'path': '...', 'weight': 1.0, 'enabled': True}]")
-
+    controlnet_image: Optional[str] = Field(None, description="Image de contrôle en Base64 (Depth map, Canny, etc.)")
+    controlnet_conditioning_scale: float = Field(0.7, ge=0.0, le=2.0, description="Force de l'influence ControlNet")
+    controlnet_model: Optional[str] = Field("diffusers/controlnet-depth-sdxl-1.0", description="Nom du modèle ControlNet sur HF ou chemin local")
 # --- LE CONTRAT DE SORTIE ---
 class ImageGenerationResponse(BaseModel):
     request_id: uuid.UUID
@@ -67,3 +69,15 @@ class InpaintRequest(ImageGenerationRequest):
 class OutpaintRequest(InpaintRequest):
     # Same as inpaint but often handled with different padding logic
     pass
+
+class DepthRequest(BaseModel):
+    image: str = Field(..., description="Image source en Base64 ou chemin /view/")
+
+class NormalRequest(BaseModel):
+    image: str = Field(..., description="Image source en Base64 ou chemin /view/ (Depth Map)")
+    strength: float = Field(2.0, ge=0.1, le=10.0, description="Force du relief")
+
+class AudioGenerationRequest(BaseModel):
+    prompt: str = Field(..., description="Description de la musique")
+    duration: int = Field(10, ge=1, le=300, description="Durée en secondes")
+    guidance_scale: float = Field(3.0, ge=1.0, le=10.0, description="Respect du prompt")

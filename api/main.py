@@ -12,7 +12,8 @@ from watchfiles import awatch
 
 from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
-    RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest
+    RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest, DepthRequest, NormalRequest,
+    AudioGenerationRequest
 )
 from api.framework import QpytUI
 from core.config import config
@@ -214,6 +215,12 @@ async def get_loras():
     from core.generator import list_loras
     return {"status": "success", "loras": list_loras()}
 
+@app.get("/config/controlnets")
+async def get_controlnets():
+    """Returns the list of available ControlNet models."""
+    from core.generator import list_controlnets
+    return {"status": "success", "models": list_controlnets()}
+
 @app.post("/config/save")
 async def save_config(request: Request):
     try:
@@ -305,6 +312,12 @@ async def get_preview():
 # --- Task Wrappers for Queue Worker ---
 
 async def task_generate_wrapper(**kwargs):
+    # Unload other heavy models to free VRAM for Image Gen
+    from core.audio_generator import MusicGenerator
+    MusicGenerator.unload()
+    from core.depth_estimator import unload_model as unload_depth
+    unload_depth()
+    
     # Clean up kwargs to match ModelManager.generate signature if needed
     image_url, exec_time, used_params = await run_in_threadpool(
         ModelManager.generate,
@@ -325,6 +338,12 @@ async def task_generate_wrapper(**kwargs):
     }
 
 async def task_upscale_wrapper(**kwargs):
+    # Unload other heavy models
+    from core.audio_generator import MusicGenerator
+    MusicGenerator.unload()
+    from core.depth_estimator import unload_model as unload_depth
+    unload_depth()
+
     image_url, exec_time, used_params = await run_in_threadpool(
         ModelManager.upscale,
         **kwargs
@@ -360,7 +379,10 @@ async def generate(request: ImageGenerationRequest):
         image=request.image,
         denoising_strength=request.denoising_strength,
         output_format=request.output_format,
-        loras=request.loras
+        loras=request.loras,
+        controlnet_image=request.controlnet_image,
+        controlnet_conditioning_scale=request.controlnet_conditioning_scale,
+        controlnet_model=request.controlnet_model
     )
     
     return {
@@ -457,6 +479,70 @@ async def rembg(request: RembgRequest):
         }
 
     task_id = await queue_mgr.add_task("rembg", task_rembg_wrapper, request.image)
+    return {"status": "queued", "task_id": task_id}
+
+@app.post("/depth")
+async def depth(request: DepthRequest):
+    logger.info("Adding depth estimation to queue")
+    queue_mgr = QueueManager.get_instance()
+    
+    async def task_depth_wrapper(image_input):
+        # Unload Image Gen & Audio Models
+        from core.generator import ModelManager
+        ModelManager.unload_current_model()
+        from core.audio_generator import MusicGenerator
+        MusicGenerator.unload()
+
+        from core.depth_estimator import infer_depth
+        start_time = time.time()
+        image_url = await run_in_threadpool(infer_depth, image_input=image_input)
+        return {
+            "image_url": f"/view/{image_url}",
+            "execution_time": time.time() - start_time
+        }
+
+    task_id = await queue_mgr.add_task("depth", task_depth_wrapper, request.image)
+    return {"status": "queued", "task_id": task_id}
+
+@app.post("/normal")
+async def normal_map(request: NormalRequest):
+    logger.info(f"Adding normal map generation to queue (Strength: {request.strength})")
+    queue_mgr = QueueManager.get_instance()
+    
+    async def task_normal_wrapper(image_input, strength):
+        from core.normal_service import compute_normal_map
+        start_time = time.time()
+        image_url = await run_in_threadpool(compute_normal_map, image_input, strength)
+        return {
+            "image_url": f"/view/{image_url}",
+            "execution_time": time.time() - start_time
+        }
+
+    task_id = await queue_mgr.add_task("normal", task_normal_wrapper, request.image, request.strength)
+    return {"status": "queued", "task_id": task_id}
+
+@app.post("/generate/audio")
+async def generate_audio(request: AudioGenerationRequest):
+    logger.info(f"Adding audio generation to queue: {request.prompt}")
+    queue_mgr = QueueManager.get_instance()
+    
+    async def task_audio_wrapper(prompt, duration, guidance_scale):
+        # Unload Image Gen & Depth Models
+        from core.generator import ModelManager
+        ModelManager.unload_current_model()
+        from core.depth_estimator import unload_model as unload_depth
+        unload_depth()
+
+        from core.audio_generator import MusicGenerator
+        start_time = time.time()
+        audio_url = await run_in_threadpool(MusicGenerator.generate, prompt, duration, guidance_scale)
+        return {
+            "image_url": f"/view/{audio_url}", # Reusing 'image_url' output field for generic file path to avoid breaking frontend parsers
+            "execution_time": time.time() - start_time,
+            "metadata": {"prompt": prompt, "duration": duration}
+        }
+
+    task_id = await queue_mgr.add_task("audio", task_audio_wrapper, request.prompt, request.duration, request.guidance_scale)
     return {"status": "queued", "task_id": task_id}
 
 @app.post("/vectorize")

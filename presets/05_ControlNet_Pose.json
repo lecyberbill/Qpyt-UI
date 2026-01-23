@@ -1,0 +1,42 @@
+[
+    {
+        "id": "qp-openpose-editor-005",
+        "type": "qp-openpose-editor",
+        "props": {
+            "width": 1024,
+            "height": 1024
+        }
+    },
+    {
+        "id": "qp-controlnet-005",
+        "type": "qp-controlnet",
+        "props": {
+            "selectedControlNet": "thibaud/controlnet-openpose-sdxl-1.0",
+            "controlNetStrength": 0.8
+        }
+    },
+    {
+        "id": "qp-prompt-005",
+        "type": "qp-prompt",
+        "props": {}
+    },
+    {
+        "id": "qp-settings-005",
+        "type": "qp-settings",
+        "props": {
+            "width": 1024,
+            "height": 1024,
+            "output_format": "webp"
+        }
+    },
+    {
+        "id": "qp-render-sdxl-005",
+        "type": "qp-render-sdxl",
+        "props": {}
+    },
+    {
+        "id": "qp-image-out-005",
+        "type": "qp-image-out",
+        "props": {}
+    }
+]

@@ -1,0 +1,36 @@
+[
+    {
+        "id": "qp-prompt-002",
+        "type": "qp-prompt",
+        "props": {}
+    },
+    {
+        "id": "qp-settings-002",
+        "type": "qp-settings",
+        "props": {
+            "width": 1024,
+            "height": 1024,
+            "output_format": "png",
+            "num_inference_steps": 4,
+            "guidance_scale": 3.5
+        }
+    },
+    {
+        "id": "qp-render-flux-002",
+        "type": "qp-render-flux",
+        "props": {
+            "selectedModel": "flux1-schnell.sft",
+            "modelType": "flux"
+        }
+    },
+    {
+        "id": "qp-image-out-002",
+        "type": "qp-image-out",
+        "props": {}
+    },
+    {
+        "id": "qp-save-to-disk-002",
+        "type": "qp-save-to-disk",
+        "props": {}
+    }
+]

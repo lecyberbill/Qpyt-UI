@@ -1,0 +1,36 @@
+[
+    {
+        "id": "qp-prompt-003",
+        "type": "qp-prompt",
+        "props": {}
+    },
+    {
+        "id": "qp-settings-003",
+        "type": "qp-settings",
+        "props": {
+            "width": 1024,
+            "height": 1024,
+            "output_format": "webp",
+            "num_inference_steps": 8,
+            "guidance_scale": 1.0
+        }
+    },
+    {
+        "id": "qp-render-sd35-003",
+        "type": "qp-render-sd35turbo",
+        "props": {
+            "modelType": "sd3_5_turbo",
+            "selectedModel": "sd3.5_large_turbo.safetensors"
+        }
+    },
+    {
+        "id": "qp-image-out-003",
+        "type": "qp-image-out",
+        "props": {}
+    },
+    {
+        "id": "qp-save-to-disk-003",
+        "type": "qp-save-to-disk",
+        "props": {}
+    }
+]

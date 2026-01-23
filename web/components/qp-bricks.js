@@ -184,6 +184,20 @@ class QpImageInput extends HTMLElement {
                 composed: true
             }));
         });
+
+        // Enable Drag & Drop for the image output
+        const img = this.shadowRoot.querySelector('img');
+        if (img) {
+            img.style.cursor = 'grab';
+            img.setAttribute('draggable', 'true');
+            img.addEventListener('dragstart', (e) => {
+                // Ensure we send the Base64 data, not the blob URL
+                if (this.base64) {
+                    e.dataTransfer.setData('text/plain', this.base64);
+                    e.dataTransfer.effectAllowed = 'copy';
+                }
+            });
+        }
     }
 
     getImage() { return this.base64; }
@@ -346,6 +360,9 @@ class QpRender extends HTMLElement {
         this.currentStep = 0;
         this.totalSteps = 0;
         this.previewInterval = null;
+        this.controlnets = [];
+        this.totalSteps = 0;
+        this.previewInterval = null;
         this.hasRendered = false;
     }
 
@@ -470,6 +487,7 @@ class QpRender extends HTMLElement {
         let settingsEl = document.querySelector('qp-settings');
         const stylesEl = document.querySelector('qp-styles');
         const loraManager = document.querySelector('qp-lora-manager');
+        const controlNet = document.querySelector('qp-controlnet');
 
         if (!promptEl) {
             window.qpyt_app.notify("Missing 'Prompt' brick!", "danger");
@@ -543,7 +561,12 @@ class QpRender extends HTMLElement {
                 ...genSettings,
                 seed: genSettings.seed ? genSettings.seed + index : null,
                 output_format: genSettings.output_format,
-                loras: loraManager ? loraManager.getValues().loras : []
+                seed: genSettings.seed ? genSettings.seed + index : null,
+                output_format: genSettings.output_format,
+                loras: loraManager ? loraManager.getValues().loras : [],
+                controlnet_image: controlNet ? controlNet.getImage() : null,
+                controlnet_conditioning_scale: controlNet ? controlNet.getStrength() : 0.7,
+                controlnet_model: controlNet ? controlNet.getModel() : null
             };
 
             try {
@@ -827,7 +850,10 @@ class QpRender extends HTMLElement {
                                 box-shadow: 0 0 5px rgba(0,0,0,0.5);
                             }
                         </style>
+                        </style>
                     ` : ''}
+
+
                     
                     <div class="status-area" id="preview-area" style="${this.lastImageUrl ? 'cursor: pointer;' : ''}">
                         ${this.lastImageUrl ? `
@@ -2898,3 +2924,182 @@ class QpLlmPrompter extends HTMLElement {
     }
 }
 customElements.define('qp-llm-prompter', QpLlmPrompter);
+
+// ControlNet Cartridge
+class QpControlNet extends HTMLElement {
+    static get observedAttributes() { return ['brick-id']; }
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.controlnets = [];
+        this.selectedControlNet = '';
+        this.controlNetImage = null; // Base64
+        this.controlNetStrength = 0.7;
+        this.hasRendered = false;
+    }
+
+    connectedCallback() {
+        this.fetchControlNets();
+        this.render();
+    }
+
+    async fetchControlNets() {
+        try {
+            const res = await fetch('/config/controlnets');
+            const data = await res.json();
+            if (data.status === 'success') {
+                this.controlnets = data.models;
+                // Auto-select depth of default
+                const depth = this.controlnets.find(m => m.toLowerCase().includes('depth'));
+                if (depth && !this.selectedControlNet) this.selectedControlNet = depth;
+                else if (this.controlnets.length > 0 && !this.selectedControlNet) this.selectedControlNet = this.controlnets[0];
+
+                this.hasRendered = false;
+                this.render();
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    attributeChangedCallback() { this.render(); }
+
+    render() {
+        if (this.hasRendered) return;
+        this.hasRendered = true;
+        const brickId = this.getAttribute('brick-id') || '';
+
+        this.shadowRoot.innerHTML = `
+            <qp-cartridge title="ControlNet" type="tool" brick-id="${brickId}">
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                     <!-- ControlNet Checkpoint -->
+                    <sl-select id="cn-model-select" label="ControlNet Model" value="${this.selectedControlNet}" size="small" hoist>
+                            <sl-option value="">None</sl-option>
+                            ${this.controlnets.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')}
+                    </sl-select>
+
+                    <!-- Control Image Dropzone -->
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                         <sl-button size="small" id="btn-import-source" style="flex: 1;">
+                             <sl-icon slot="prefix" name="box-arrow-in-down"></sl-icon> Use Source
+                         </sl-button>
+                         <sl-button size="small" id="btn-upload-disk" style="flex: 1;">
+                             <sl-icon slot="prefix" name="folder"></sl-icon> From Disk
+                         </sl-button>
+                         <input type="file" id="file-input" accept="image/*" style="display: none;">
+                    </div>
+
+                    <!-- Control Image Dropzone -->
+                    <div id="cn-dropzone" style="
+                        width: 100%; aspect-ratio: 16/9; 
+                        border: 2px dashed ${this.controlNetImage ? '#a855f7' : '#475569'}; 
+                        background: ${this.controlNetImage ? 'transparent' : 'rgba(0,0,0,0.2)'};
+                        border-radius: 0.5rem; display: flex; align-items: center; justify-content: center;
+                        position: relative; cursor: pointer; overflow: hidden; transition: all 0.2s;">
+                        
+                        ${this.controlNetImage ?
+                `<img src="${this.controlNetImage}" style="width: 100%; height: 100%; object-fit: contain;">
+                                <div style="position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.6); border-radius: 50%; padding: 4px; cursor: pointer;" id="cn-clear">
+                                <sl-icon name="x" style="color: white;"></sl-icon>
+                                </div>`
+                :
+                `<div style="text-align: center; color: #94a3b8; pointer-events: none;">
+                                <sl-icon name="cloud-upload" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></sl-icon><br>
+                                Drag & Drop or Click Buttons<br>
+                                <span style="font-size: 0.7rem; opacity: 0.7;">(Depth Map, Canny, etc.)</span>
+                                </div>`
+            }
+                    </div>
+
+                    <!-- Strength Slider -->
+                    <div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #cbd5e1; margin-bottom: 0.5rem;">
+                            <span>Control Strength</span>
+                            <span id="cn-strength-val">${this.controlNetStrength.toFixed(2)}</span>
+                        </div>
+                        <input type="range" id="cn-strength" min="0" max="2" step="0.05" value="${this.controlNetStrength}" 
+                            style="width: 100%; height: 6px; border-radius: 3px; background: rgba(168, 85, 247, 0.2); appearance: none; cursor: pointer;">
+                    </div>
+                </div>
+            </qp-cartridge>
+        `;
+
+        const cnSelect = this.shadowRoot.getElementById('cn-model-select');
+        if (cnSelect) cnSelect.addEventListener('sl-change', (e) => { this.selectedControlNet = e.target.value; });
+
+        const cnStrength = this.shadowRoot.getElementById('cn-strength');
+        if (cnStrength) cnStrength.addEventListener('input', (e) => {
+            this.controlNetStrength = parseFloat(e.target.value);
+            this.shadowRoot.getElementById('cn-strength-val').textContent = this.controlNetStrength.toFixed(2);
+        });
+
+        // Button Handlers
+        this.shadowRoot.getElementById('btn-import-source')?.addEventListener('click', () => {
+            const srcBrick = document.querySelector('qp-image-input');
+            if (srcBrick) {
+                const img = srcBrick.getImage();
+                if (img) {
+                    this.controlNetImage = img;
+                    this.hasRendered = false; this.render();
+                } else {
+                    window.qpyt_app?.notify("No image in Source Image brick!", "warning");
+                }
+            } else {
+                window.qpyt_app?.notify("Source Image brick not found!", "danger");
+            }
+        });
+
+        this.shadowRoot.getElementById('btn-upload-disk')?.addEventListener('click', () => {
+            this.shadowRoot.getElementById('file-input').click();
+        });
+
+        this.shadowRoot.getElementById('file-input')?.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    this.controlNetImage = evt.target.result;
+                    this.hasRendered = false; this.render();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // DnD for ControlNet
+        const cnDrop = this.shadowRoot.getElementById('cn-dropzone');
+        if (cnDrop) {
+            cnDrop.addEventListener('dragover', (e) => { e.preventDefault(); cnDrop.style.borderColor = '#a855f7'; });
+            cnDrop.addEventListener('dragleave', (e) => { e.preventDefault(); cnDrop.style.borderColor = this.controlNetImage ? '#a855f7' : '#475569'; });
+            cnDrop.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                        this.controlNetImage = evt.target.result;
+                        this.hasRendered = false; this.render();
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    const url = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list');
+                    if (url) {
+                        this.controlNetImage = url;
+                        this.hasRendered = false; this.render();
+                    }
+                }
+            });
+            const cnClear = this.shadowRoot.getElementById('cn-clear');
+            if (cnClear) {
+                cnClear.onclick = (e) => {
+                    e.stopPropagation();
+                    this.controlNetImage = null;
+                    this.hasRendered = false; this.render();
+                }
+            }
+        }
+    }
+
+    // Public API
+    getModel() { return this.selectedControlNet; }
+    getImage() { return this.controlNetImage; }
+    getStrength() { return this.controlNetStrength; }
+}
+customElements.define('qp-controlnet', QpControlNet);

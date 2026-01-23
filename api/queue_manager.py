@@ -92,6 +92,8 @@ class QueueManager:
                     task.result = result
                     task.status = "COMPLETED"
                 except Exception as e:
+                    import traceback
+                    traceback.print_exc()
                     print(f"[QueueManager] Task {task_id} failed: {e}")
                     task.status = "FAILED"
                     task.error = str(e)

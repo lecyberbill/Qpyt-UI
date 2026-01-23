@@ -1,0 +1,35 @@
+[
+    {
+        "id": "qp-prompt-001",
+        "type": "qp-prompt",
+        "props": {}
+    },
+    {
+        "id": "qp-settings-001",
+        "type": "qp-settings",
+        "props": {
+            "width": 1024,
+            "height": 1024,
+            "output_format": "webp"
+        }
+    },
+    {
+        "id": "qp-render-sdxl-001",
+        "type": "qp-render-sdxl",
+        "props": {
+            "selectedModel": "sd_xl_base_1.0.safetensors",
+            "selectedSampler": "dpm++_2m_sde_karras",
+            "selectedVae": "sdxl_vae.safetensors"
+        }
+    },
+    {
+        "id": "qp-image-out-001",
+        "type": "qp-image-out",
+        "props": {}
+    },
+    {
+        "id": "qp-save-to-disk-001",
+        "type": "qp-save-to-disk",
+        "props": {}
+    }
+]

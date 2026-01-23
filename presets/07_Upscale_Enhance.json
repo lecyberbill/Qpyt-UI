@@ -1,0 +1,32 @@
+[
+    {
+        "id": "qp-image-input-007",
+        "type": "qp-image-input",
+        "props": {}
+    },
+    {
+        "id": "qp-settings-007",
+        "type": "qp-settings",
+        "props": {
+            "output_format": "png",
+            "upscale_factor": 2.0
+        }
+    },
+    {
+        "id": "qp-upscaler-007",
+        "type": "qp-upscaler",
+        "props": {
+            "upscale_method": "tiled_diffusion"
+        }
+    },
+    {
+        "id": "qp-image-out-007",
+        "type": "qp-image-out",
+        "props": {}
+    },
+    {
+        "id": "qp-save-to-disk-007",
+        "type": "qp-save-to-disk",
+        "props": {}
+    }
+]
