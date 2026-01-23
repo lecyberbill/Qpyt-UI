@@ -2559,12 +2559,17 @@ class QpTranslator extends HTMLElement {
     setValues(values) {
         if (!values) return;
         this.result = values.result || "";
-        this.render();
+
+        // Update Result Area (Dynamic DOM)
+        this.updateResultArea();
+
         const input = this.shadowRoot.getElementById('fr-prompt');
         if (input && values.inputValue !== undefined) input.value = values.inputValue;
     }
 
     render() {
+        if (this.shadowRoot.getElementById('fr-prompt')) return; // Already rendered
+
         const brickId = this.getAttribute('brick-id');
         this.shadowRoot.innerHTML = `
             <style>
@@ -2583,6 +2588,7 @@ class QpTranslator extends HTMLElement {
                     color: #94a3b8;
                     min-height: 50px;
                     word-break: break-word;
+                    margin-bottom: 0.5rem;
                 }
             </style>
             <qp-cartridge title="Translator (FR ➔ EN)" type="input" brick-id="${brickId}">
@@ -2594,19 +2600,31 @@ class QpTranslator extends HTMLElement {
                         Translate
                     </sl-button>
 
-                    ${this.result ? `
-                        <div class="result-area">${this.result}</div>
-                        <sl-button variant="neutral" id="btn-inject" size="small" outline>
-                            <sl-icon slot="prefix" name="chat-left-text"></sl-icon>
-                            Inject to Prompt
-                        </sl-button>
-                    ` : ''}
+                    <div id="result-container"></div>
                 </div>
             </qp-cartridge>
         `;
 
         this.shadowRoot.getElementById('btn-translate')?.addEventListener('click', () => this.translate());
-        this.shadowRoot.getElementById('btn-inject')?.addEventListener('click', () => this.inject());
+        this.updateResultArea();
+    }
+
+    updateResultArea() {
+        const container = this.shadowRoot.getElementById('result-container');
+        if (!container) return;
+
+        if (this.result) {
+            container.innerHTML = `
+                <div class="result-area">${this.result}</div>
+                <sl-button variant="neutral" id="btn-inject" size="small" outline style="width: 100%;">
+                    <sl-icon slot="prefix" name="chat-left-text"></sl-icon>
+                    Inject to Prompt
+                </sl-button>
+            `;
+            container.querySelector('#btn-inject')?.addEventListener('click', () => this.inject());
+        } else {
+            container.innerHTML = '';
+        }
     }
 }
 customElements.define('qp-translator', QpTranslator);
@@ -2642,7 +2660,17 @@ class QpStyles extends HTMLElement {
     setValues(values) {
         if (values && values.selectedKeys) {
             this.selectedKeys = [...values.selectedKeys];
-            this.render();
+
+            // Check if already rendered
+            if (this.shadowRoot.getElementById('style-select-0')) {
+                // Update values directly without destroying DOM
+                [0, 1, 2, 3].forEach(i => {
+                    const el = this.shadowRoot.getElementById(`style-select-${i}`);
+                    if (el) el.value = this.selectedKeys[i];
+                });
+            } else {
+                this.render();
+            }
         }
     }
 
@@ -2677,6 +2705,8 @@ class QpStyles extends HTMLElement {
     }
 
     render() {
+        if (this.shadowRoot.getElementById('selectors-grid')) return; // Already rendered
+
         const brickId = this.getAttribute('brick-id') || '';
         // Sanitize values for Shoelace (no spaces in sl-option values)
         const optionsHtml = this.allStyles.map(s => `<sl-option value="${s.key.replace(/ /g, '_')}">${s.name}</sl-option>`).join('');

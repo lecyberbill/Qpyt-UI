@@ -261,12 +261,22 @@ class QpytApp {
             });
             const result = await response.json();
             if (result.status === 'success') {
-                // 2. Merge local states with new workflow structure
-                const mergedWorkflow = result.workflow.map(brick => {
-                    const saved = currentStates.find(s => s.id === brick.id);
-                    if (saved) return { ...brick, props: saved.props };
-                    return brick;
-                });
+                // 2. Merge local states while PRESERVING local order
+                // Identify new bricks (those in result but not in current)
+                const newBricks = result.workflow.filter(
+                    rb => !currentStates.find(lb => lb.id === rb.id)
+                );
+
+                // Construct merged list: Existing Local Order + New Bricks
+                const mergedWorkflow = [
+                    ...currentStates.map(state => {
+                        // Update props from backend if needed, or keep local
+                        const backendBrick = result.workflow.find(b => b.id === state.id);
+                        return backendBrick ? { ...backendBrick, props: state.props } : null;
+                    }).filter(b => b !== null), // Remove any deleted on backend (corner case)
+                    ...newBricks
+                ];
+
                 this.mountWorkflow(mergedWorkflow);
                 this.notify("Module added successfully", "success");
             } else {
@@ -324,7 +334,9 @@ class QpytApp {
     }
 
     getDragAfterElement(container, x) {
-        const draggableElements = [...container.querySelectorAll('[draggable="true"]:not(.dragging)')];
+        // FIX: Select ALL bricks (identified by brick-id), not just draggable ones
+        // Bricks are not draggable by default anymore.
+        const draggableElements = [...container.querySelectorAll('[brick-id]:not(.dragging)')];
 
         return draggableElements.reduce((closest, child) => {
             const box = child.getBoundingClientRect();
@@ -340,53 +352,85 @@ class QpytApp {
 
     mountWorkflow(bricks) {
         if (!this.workflow) return;
-        console.log("[Workflow] Mounting bricks via innerHTML:", bricks);
 
         try {
-            // Build the collective HTML string first to avoid DOMException on createElement
-            let html = bricks.map(brick => {
-                if (!brick.type) return '';
-                // Add draggable attribute and proper styling hooks
-                return `<${brick.type} brick-id="${brick.id}" draggable="true" style="cursor: grab;"></${brick.type}>`;
-            }).join('');
-
-            this.workflow.innerHTML = html;
-
-            // Second pass: Assign props & Setup Drag Events
-            bricks.forEach(brick => {
-                if (!brick.type) return;
-                const el = this.workflow.querySelector(`[brick-id="${brick.id}"]`);
-                if (el) {
-                    // Set props
-                    if (brick.props) {
-                        if (typeof el.setValues === 'function') {
-                            el.setValues(brick.props);
-                        } else {
-                            Object.assign(el, brick.props);
-                        }
-                    }
-
-                    // Attach Drag Listeners
-                    el.addEventListener('dragstart', () => {
-                        el.classList.add('dragging');
-                        el.style.opacity = '0.5';
-                    });
-
-                    el.addEventListener('dragend', () => {
-                        el.classList.remove('dragging');
-                        el.style.opacity = '1';
-                    });
-                }
+            // 1. Reuse existing elements map
+            const existingMap = new Map();
+            Array.from(this.workflow.children).forEach(child => {
+                const id = child.getAttribute('brick-id');
+                if (id) existingMap.set(id, child);
             });
 
-            // Init container listeners if not already done (idempotent check needed? setupDragAndDrop handles listener addition only once ideally)
-            // But doing it here repeatedly is risky if not careful. 
-            // Better to call setupDragAndDrop once in init().
+            // 2. Process bricks list (Create or Reuse)
+            bricks.forEach(brick => {
+                if (!brick.type) return;
+
+                let el = existingMap.get(brick.id);
+
+                if (el) {
+                    existingMap.delete(brick.id); // Mark as used
+                } else {
+                    // CREATE: New brick
+                    el = document.createElement(brick.type);
+                    el.setAttribute('brick-id', brick.id);
+                    // Add listeners only once on creation
+                    this.setupBrickListeners(el);
+                }
+
+                // Update Properties
+                if (brick.props) {
+                    if (typeof el.setValues === 'function') {
+                        el.setValues(brick.props);
+                    } else {
+                        Object.assign(el, brick.props);
+                    }
+                }
+
+                // Append moves the element if it exists in the DOM, likely triggering less destructive changes
+                // than clear + re-add.
+                this.workflow.appendChild(el);
+            });
+
+            // 3. Cleanup unused elements
+            existingMap.forEach(child => child.remove());
 
         } catch (err) {
-            console.error("[Workflow] Critical error during string-based mount:", err);
-            this.workflow.innerHTML = `<div style="padding: 2rem; color: #ef4444;">Workflow Error: ${err.message}</div>`;
+            console.error("[Workflow] Critical error during reconciliation:", err);
+            this.notify("Error rendering workflow", "danger");
         }
+    }
+
+    setupBrickListeners(el) {
+        // Dynamic Draggable Logic
+        const addDrag = (e) => {
+            const path = e.composedPath();
+            const isHandle = path.some(node =>
+                node.classList && node.classList.contains('drag-handle')
+            );
+            if (isHandle) el.setAttribute('draggable', 'true');
+        };
+
+        const removeDrag = () => el.removeAttribute('draggable');
+
+        const cleanupDrag = () => {
+            el.removeAttribute('draggable');
+            el.classList.remove('dragging');
+            el.style.opacity = '1';
+        };
+
+        const startDrag = (e) => {
+            if (!el.getAttribute('draggable')) {
+                e.preventDefault();
+                return;
+            }
+            el.classList.add('dragging');
+            el.style.opacity = '0.5';
+        };
+
+        el.addEventListener('mousedown', addDrag);
+        el.addEventListener('mouseup', removeDrag);
+        el.addEventListener('dragend', cleanupDrag);
+        el.addEventListener('dragstart', startDrag);
     }
 
     notify(message, variant = 'primary', icon = 'info-circle', duration = 3000) {

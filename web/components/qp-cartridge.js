@@ -155,7 +155,10 @@ class QpCartridge extends HTMLElement {
             </style>
 
             <div class="cartridge" id="main-cartridge">
-                <div class="side-label" id="toggle-btn">
+                <div class="side-label drag-handle" id="toggle-btn" style="cursor: grab;">
+                    <!-- Drag Handle Icon -->
+                    <sl-icon name="grip-vertical" style="font-size: 20px; color: rgba(255,255,255,0.6); margin-top: 10px;"></sl-icon>
+                    
                     <div class="title-wrapper">
                         <div class="title-rotated">${title}</div>
                     </div>
