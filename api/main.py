@@ -382,7 +382,8 @@ async def generate(request: ImageGenerationRequest):
         loras=request.loras,
         controlnet_image=request.controlnet_image,
         controlnet_conditioning_scale=request.controlnet_conditioning_scale,
-        controlnet_model=request.controlnet_model
+        controlnet_model=request.controlnet_model,
+        low_vram=request.low_vram
     )
     
     return {

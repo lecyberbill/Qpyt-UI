@@ -275,7 +275,7 @@ class ModelManager:
     @classmethod
     def get_pipeline(cls, model_type: str, model_path: str, vae_name: Optional[str] = None, 
                      sampler_name: Optional[str] = None, is_img2img: bool = False, is_inpaint: bool = False,
-                     controlnet_model_name: Optional[str] = None):
+                     controlnet_model_name: Optional[str] = None, low_vram: bool = False):
         # Normalize VAE name
         if vae_name == 'Default' or not vae_name:
             vae_name = None
@@ -298,9 +298,12 @@ class ModelManager:
 
         if cls._pipeline is not None:
             # Check if we are already loaded with the right model and path
+            # Also check if low_vram setting changed for Flux (we can't easily detect if it was loaded with specific quantization, so simple check: if we ask for low_vram and current dtype is float16/bfloat16 but maybe not quantized... for simplicity, if low_vram is requested, we might want to ensure it.)
+            # For now, let's assume if path matches, it is fine, unless we want to force reload.
+            # Ideally we track _current_low_vram state.
+            
             if cls._current_model_path == model_path and cls._current_model_type == model_type:
                 # If only the task type (Txt2Img vs Img2Img) changed, try a fast structural switch
-                # BUT if ControlNet requirement changed, we MUST reload/adapt
                 # BUT if ControlNet requirement changed, we MUST reload/adapt
                 has_controlnet = bool(controlnet_model_name)
                 
@@ -317,91 +320,100 @@ class ModelManager:
                          cls.unload_current_model()
                     else:
                         mode_name = "Inpaint" if is_inpaint else ("Img2Img" if is_img2img else "Txt2Img")
-                    print(f"Switching pipeline mode to {mode_name}...")
-                    try:
-                        # Map base models for from_pipe
-                        base_pipes = {
-                            'sdxl': (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline),
-                            'flux': (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline),
-                            'sd3': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline),
-                            'sd3_5_turbo': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline)
-                        }
-                        txt_class, img_class, inp_class = base_pipes.get(model_type, (None, None, None))
-                        if is_inpaint:
-                            target_class = inp_class
-                        elif is_img2img:
-                            target_class = img_class
-                        else:
-                            target_class = txt_class
-                        
-                        if target_class:
-                            # Re-apply optimizations after from_pipe as it can lose hooks
-                            cls._pipeline = target_class.from_pipe(cls._pipeline)
-                            cls._current_is_img2img = is_img2img
-                            cls._current_is_inpaint = is_inpaint
-                            
-                            # FORCE COMPONENT-LEVEL DTYPE RESTORATION
-                            # from_pipe often reset modules to fp32
-                            print(f"[Performance] Enforcing {cls._current_dtype} and memory format for structural switch...")
-                            
-                            # Standard Speed Optimization Path for high VRAM
-                            vram_gb = 0
-                            if torch.cuda.is_available():
-                                vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                            
-                            cls.remove_all_hooks(cls._pipeline)
-                            
-                            # Define target device
-                            device = config.DEVICE
-                            
-                            # Explicitly cast components
-                            # This is safer than pipe.to() which might misinterpret some modules
-                            if hasattr(cls._pipeline, "unet") and cls._pipeline.unet is not None:
-                                cls._pipeline.unet.to(device=device, dtype=cls._current_dtype, memory_format=torch.channels_last)
-                            if hasattr(cls._pipeline, "transformer") and cls._pipeline.transformer is not None:
-                                cls._pipeline.transformer.to(device=device, dtype=cls._current_dtype, memory_format=torch.channels_last)
-                            
-                            if hasattr(cls._pipeline, "text_encoder") and cls._pipeline.text_encoder is not None:
-                                cls._pipeline.text_encoder.to(device=device, dtype=cls._current_dtype)
-                            if hasattr(cls._pipeline, "text_encoder_2") and cls._pipeline.text_encoder_2 is not None:
-                                cls._pipeline.text_encoder_2.to(device=device, dtype=cls._current_dtype)
-                            if hasattr(cls._pipeline, "text_encoder_3") and cls._pipeline.text_encoder_3 is not None:
-                                cls._pipeline.text_encoder_3.to(device=device, dtype=cls._current_dtype)
-
-                            # Special handling for SDXL VAE - 
-                            # If we use half precision everywhere else, we MUST match it in the VAE
-                            # to avoid "Input type and bias type should be same" error.
-                            if hasattr(cls._pipeline, "vae") and cls._pipeline.vae is not None:
-                                # Align with current_dtype (float16) to avoid crashes
-                                cls._pipeline.vae.to(device=device, dtype=cls._current_dtype)
-
-                            if vram_gb >= 10:
-                                cls._pipeline.to(device)
-                                cls._pipeline.disable_attention_slicing()
-                                # Ensure VAE tiling/slicing is still active
-                                if hasattr(cls._pipeline, "enable_vae_tiling"):
-                                    cls._pipeline.enable_vae_tiling()
-                                if hasattr(cls._pipeline, "enable_vae_slicing"):
-                                    cls._pipeline.enable_vae_slicing()
-                                
-                                # Re-enable xformers explicitly
-                                try:
-                                    import xformers
-                                    cls._pipeline.enable_xformers_memory_efficient_attention()
-                                except: pass
+                        print(f"Switching pipeline mode to {mode_name}...")
+                        try:
+                            # Map base models for from_pipe
+                            base_pipes = {
+                                'sdxl': (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline),
+                                'flux': (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline),
+                                'sd3': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline),
+                                'sd3_5_turbo': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline)
+                            }
+                            txt_class, img_class, inp_class = base_pipes.get(model_type, (None, None, None))
+                            if is_inpaint:
+                                target_class = inp_class
+                            elif is_img2img:
+                                target_class = img_class
                             else:
-                                cls._pipeline.enable_model_cpu_offload()
+                                target_class = txt_class
                             
-                            # GC and clear cache after structural change
-                            gc.collect()
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
+                            if target_class:
+                                # Re-apply optimizations after from_pipe as it can lose hooks
+                                cls._pipeline = target_class.from_pipe(cls._pipeline)
+                                cls._current_is_img2img = is_img2img
+                                cls._current_is_inpaint = is_inpaint
                                 
-                            print(f"Mode switch successful. Optimized for {device} in {cls._current_dtype}")
-                            return cls._pipeline, cls._compel
-                    except Exception as e:
-                        print(f"Fast mode switch failed: {e}. Falling back to full reload.")
-                        cls.unload_current_model()
+                                # FORCE COMPONENT-LEVEL DTYPE RESTORATION
+                                # from_pipe often reset modules to fp32
+                                print(f"[Performance] Enforcing {cls._current_dtype} and memory format for structural switch...")
+                                
+                                # Standard Speed Optimization Path for high VRAM
+                                vram_gb = 0
+                                if torch.cuda.is_available():
+                                    vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                                
+                                cls.remove_all_hooks(cls._pipeline)
+                                
+                                # Define target device
+                                device = config.DEVICE
+                                
+                                # Explicitly cast components
+                                # This is safer than pipe.to() which might misinterpret some modules
+                                if hasattr(cls._pipeline, "unet") and cls._pipeline.unet is not None:
+                                    cls._pipeline.unet.to(device=device, dtype=cls._current_dtype, memory_format=torch.channels_last)
+                                if hasattr(cls._pipeline, "transformer") and cls._pipeline.transformer is not None:
+                                    # Don't force cast transformer if it might be quantized (bitsandbytes modules don't like .to())
+                                    # We should check if it's a quantized module
+                                    if not (hasattr(cls._pipeline.transformer, "is_quantized") and cls._pipeline.transformer.is_quantized):
+                                         cls._pipeline.transformer.to(device=device, dtype=cls._current_dtype, memory_format=torch.channels_last)
+                                
+                                if hasattr(cls._pipeline, "text_encoder") and cls._pipeline.text_encoder is not None:
+                                    cls._pipeline.text_encoder.to(device=device, dtype=cls._current_dtype)
+                                if hasattr(cls._pipeline, "text_encoder_2") and cls._pipeline.text_encoder_2 is not None:
+                                    cls._pipeline.text_encoder_2.to(device=device, dtype=cls._current_dtype)
+                                if hasattr(cls._pipeline, "text_encoder_3") and cls._pipeline.text_encoder_3 is not None:
+                                    cls._pipeline.text_encoder_3.to(device=device, dtype=cls._current_dtype)
+
+                                # Special handling for SDXL VAE - 
+                                # If we use half precision everywhere else, we MUST match it in the VAE
+                                # to avoid "Input type and bias type should be same" error.
+                                if hasattr(cls._pipeline, "vae") and cls._pipeline.vae is not None:
+                                    # Align with current_dtype (float16) to avoid crashes
+                                    cls._pipeline.vae.to(device=device, dtype=cls._current_dtype)
+
+                                # Optimization application logic
+                                if low_vram:
+                                     # For low VRAM, we prefer model_cpu_offload
+                                     cls._pipeline.enable_model_cpu_offload()
+                                     if hasattr(cls._pipeline, "enable_vae_tiling"): cls._pipeline.enable_vae_tiling()
+                                     if hasattr(cls._pipeline, "enable_vae_slicing"): cls._pipeline.enable_vae_slicing()
+                                elif vram_gb >= 10:
+                                    cls._pipeline.to(device)
+                                    cls._pipeline.disable_attention_slicing()
+                                    # Ensure VAE tiling/slicing is still active
+                                    if hasattr(cls._pipeline, "enable_vae_tiling"):
+                                        cls._pipeline.enable_vae_tiling()
+                                    if hasattr(cls._pipeline, "enable_vae_slicing"):
+                                        cls._pipeline.enable_vae_slicing()
+                                    
+                                    # Re-enable xformers explicitly
+                                    try:
+                                        import xformers
+                                        cls._pipeline.enable_xformers_memory_efficient_attention()
+                                    except: pass
+                                else:
+                                    cls._pipeline.enable_model_cpu_offload()
+                                
+                                # GC and clear cache after structural change
+                                gc.collect()
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                                    
+                                print(f"Mode switch successful. Optimized for {device} in {cls._current_dtype}")
+                                return cls._pipeline, cls._compel
+                        except Exception as e:
+                            print(f"Fast mode switch failed: {e}. Falling back to full reload.")
+                            cls.unload_current_model()
                 else:
                     # Everything matches, no change needed
                     return cls._pipeline, cls._compel
@@ -426,63 +438,83 @@ class ModelManager:
                     pipeline_class = FluxImg2ImgPipeline
                 else:
                     pipeline_class = FluxPipeline
+                
+                # Check for single file
                 if model_path.lower().endswith((".safetensors", ".ckpt", ".sft")):
-                    print(f"Loading local Flux model (quantized/GGUF): {model_path}")
+                    print(f"Loading local Flux model (hybrid load): {model_path}")
                     bfl_repo = "black-forest-labs/FLUX.1-schnell"
                     
-                    # Iterative component loading for GGUF robustness
-                    extra_components = {}
-                    max_attempts = 4
-                    current_attempt = 0
-                    
-                    while current_attempt < max_attempts:
+                    try:
+                        # 1. Load Transformer from local file
+                        print(f"  -> Loading FluxTransformer2DModel from {model_path}...")
+                        transformer = FluxTransformer2DModel.from_single_file(
+                            model_path,
+                            torch_dtype=torch.bfloat16
+                        )
+                        
+                        # 2. Load T5 Encoder (Text Encoder 2) explicitly
+                        # This ensures we have the correct high-res encoder without relying on implicit loading
+                        print(f"  -> Loading T5EncoderModel from {bfl_repo}...")
+                        text_encoder_2 = T5EncoderModel.from_pretrained(
+                            bfl_repo, 
+                            subfolder="text_encoder_2", 
+                            torch_dtype=torch.bfloat16
+                        )
+
+                        # 3. Assemble Pipeline
+                        # We pass None for components we've manually loaded or want to swap to avoid double loading
+                        print(f"  -> Assembling {pipeline_class.__name__}...")
+                        cls._pipeline = pipeline_class.from_pretrained(
+                            bfl_repo,
+                            transformer=None,
+                            text_encoder_2=None,
+                            torch_dtype=torch.bfloat16
+                        )
+                        
+                        # 4. Inject manually loaded components
+                        cls._pipeline.transformer = transformer
+                        cls._pipeline.text_encoder_2 = text_encoder_2
+                        
+                        is_quantized = False # We loaded full precision (bfloat16) transformer
+                        
+                    except Exception as e:
+                        print(f"[Flux Load Error] Hybrid loading failed: {e}")
+                        print("Falling back to standard from_single_file...")
+                        # Fallback to the old method if the above fails (e.g. no internet for bfl_repo)
                         try:
-                            # Try loading with whatever components we have so far
-                            if current_attempt == 0:
-                                # First attempt: try Quanto FP8 if possible
-                                try:
-                                    q_config = QuantoConfig(weights_dtype="float8")
-                                    transformer = FluxTransformer2DModel.from_single_file(
-                                        model_path, 
-                                        quantization_config=q_config,
-                                        torch_dtype=torch.bfloat16
-                                    )
-                                    extra_components["transformer"] = transformer
-                                except Exception as qe:
-                                    print(f"Quanto FP8 failed, using standard load: {qe}")
-                            
                             cls._pipeline = pipeline_class.from_single_file(
                                 model_path,
-                                torch_dtype=torch.bfloat16,
-                                **extra_components
+                                torch_dtype=torch.bfloat16
                             )
-                            break # Success!
-                            
-                        except Exception as e:
-                            current_attempt += 1
-                            error_str = str(e).lower()
-                            print(f"[GGUF Fallback] Attempt {current_attempt}/{max_attempts} failed: {e}")
-                            
-                            # Identify missing component
-                            if "cliptextmodel" in error_str and "text_encoder" not in extra_components:
-                                print("Loading CLIPTextModel fallback...")
-                                extra_components["text_encoder"] = CLIPTextModel.from_pretrained(bfl_repo, subfolder="text_encoder", torch_dtype=torch.bfloat16)
-                            elif ("t5encodermodel" in error_str or "text_encoder_2" in error_str) and "text_encoder_2" not in extra_components:
-                                print("Loading T5EncoderModel fallback...")
-                                extra_components["text_encoder_2"] = T5EncoderModel.from_pretrained(bfl_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
-                            elif ("autoencoderkl" in error_str or "vae" in error_str) and "vae" not in extra_components:
-                                print("Loading VAE fallback...")
-                                extra_components["vae"] = AutoencoderKL.from_pretrained(bfl_repo, subfolder="vae", torch_dtype=torch.bfloat16)
-                            else:
-                                if current_attempt >= max_attempts:
-                                    raise e
-                                # If we can't identify the component but have attempts left, try generic component loading?
-                                # Actually, better to bail if we can't figure it out.
-                                raise e
-                    is_quantized = True
-                elif os.path.isdir(model_path):
-                    cls._pipeline = pipeline_class.from_pretrained(model_path, torch_dtype=torch.bfloat16)
+                        except Exception as fallback_err:
+                            raise fallback_err
 
+                elif os.path.isdir(model_path) or not model_path.endswith((".safetensors", ".ckpt")):
+                    # Hugging Face or Directory Loading
+                    print(f"Loading Flux from HF/Dir: {model_path} (Low VRAM: {low_vram})")
+                    loading_kwargs = {"torch_dtype": torch.bfloat16}
+                    
+                    if low_vram:
+                        print(f"[{model_type}] Enabling NF4 Quantization (Low VRAM Mode)...")
+                        try:
+                            quantization_config = BitsAndBytesConfig(
+                                load_in_4bit=True,
+                                bnb_4bit_quant_type="nf4",
+                                bnb_4bit_compute_dtype=torch.bfloat16
+                            )
+                            transformer = FluxTransformer2DModel.from_pretrained(
+                                model_path,
+                                subfolder="transformer",
+                                quantization_config=quantization_config,
+                                torch_dtype=torch.bfloat16
+                            )
+                            loading_kwargs["transformer"] = transformer
+                            is_quantized = True # Flag as quantized to affect offloading
+                        except Exception as e:
+                            print(f"Failed to load NF4 Transformer: {e}. Falling back to standard.")
+
+                    cls._pipeline = pipeline_class.from_pretrained(model_path, **loading_kwargs)
+            
             elif model_type == 'sdxl':
                 cls._current_dtype = torch.float16
                 print(f"Loading local SDXL model ({'Inpaint' if is_inpaint else ('Img2Img' if is_img2img else 'Txt2Img')}): {model_path}")
@@ -801,7 +833,7 @@ class ModelManager:
                  denoising_strength: float = 0.5, output_format: str = "png", mask: str = None,
                  loras: Optional[list] = None,
                  controlnet_image: str = None, controlnet_conditioning_scale: float = 0.7,
-                 controlnet_model: str = None):
+                 controlnet_model: str = None, low_vram: bool = False):
         """
         Génère une image (ou transforme une existante) à partir des paramètres.
         """
@@ -856,7 +888,8 @@ class ModelManager:
             sampler_name=sampler_name,
             is_img2img=is_now_img2img,
             is_inpaint=is_now_inpaint,
-            controlnet_model_name=controlnet_model if controlnet_image else None
+            controlnet_model_name=controlnet_model if controlnet_image else None,
+            low_vram=low_vram
         )
         active_pipe = pipe
         ModelManager.reset_interrupt()

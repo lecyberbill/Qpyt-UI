@@ -352,6 +352,7 @@ class QpRender extends HTMLElement {
         this.selectedSampler = "dpm++_2m_sde_karras";
         this.selectedVae = '';
         this.denoisingStrength = 0.5;
+        this.useLowVram = false; // New property
         this.vaes = [];
         this.samplers = [];
         this.models = [];
@@ -361,8 +362,6 @@ class QpRender extends HTMLElement {
         this.totalSteps = 0;
         this.previewInterval = null;
         this.controlnets = [];
-        this.totalSteps = 0;
-        this.previewInterval = null;
         this.hasRendered = false;
     }
 
@@ -481,6 +480,7 @@ class QpRender extends HTMLElement {
         // Multi-tasking support: allow multiple queued tasks
         if (!this._activeTasks) this._activeTasks = 0;
         this.isGenerating = true;
+        console.log("[QpRender] Generate triggered. Model Type:", this.modelType);
         // Don't render yet, we'll do it after adding tasks
 
         const promptEl = document.querySelector('qp-prompt');
@@ -561,17 +561,20 @@ class QpRender extends HTMLElement {
                 ...genSettings,
                 seed: genSettings.seed ? genSettings.seed + index : null,
                 output_format: genSettings.output_format,
-                seed: genSettings.seed ? genSettings.seed + index : null,
-                output_format: genSettings.output_format,
                 loras: loraManager ? loraManager.getValues().loras : [],
                 controlnet_image: controlNet ? controlNet.getImage() : null,
                 controlnet_conditioning_scale: controlNet ? controlNet.getStrength() : 0.7,
-                controlnet_model: controlNet ? controlNet.getModel() : null
+                controlnet_model: controlNet ? controlNet.getModel() : null,
+                low_vram: this.useLowVram // Pass low_vram setting
             };
 
             try {
+                console.log("[QpRender] Submitting task to:", endpoint, "Payload:", payload);
                 const data = await this.submitAndPollTask(endpoint, payload);
-                if (!data) return;
+                if (!data) {
+                    console.warn("[QpRender] No data returned from poll task");
+                    return;
+                }
 
                 console.log(`[Batch ${index + 1}/${batch_count}] Completed:`, data);
                 successCount++;
@@ -604,7 +607,8 @@ class QpRender extends HTMLElement {
                     data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
                 }
             } catch (e) {
-                console.error(`[Batch ${index}]`, e);
+                console.error(`[Batch ${index}] Error during generation:`, e);
+                window.qpyt_app.notify(`Generation Error: ${e.message}`, "danger");
             } finally {
                 this._activeTasks--;
                 if (this._activeTasks <= 0) {
@@ -709,7 +713,8 @@ class QpRender extends HTMLElement {
             selectedSampler: this.selectedSampler,
             selectedVae: this.selectedVae,
             denoisingStrength: this.denoisingStrength,
-            lastImageUrl: this.lastImageUrl
+            lastImageUrl: this.lastImageUrl,
+            useLowVram: this.useLowVram // Save state
         };
     }
     setValues(values) {
@@ -719,6 +724,7 @@ class QpRender extends HTMLElement {
         if (values.selectedVae !== undefined) this.selectedVae = values.selectedVae;
         if (values.denoisingStrength !== undefined) this.denoisingStrength = values.denoisingStrength;
         if (values.lastImageUrl !== undefined) this.lastImageUrl = values.lastImageUrl;
+        if (values.useLowVram !== undefined) this.useLowVram = values.useLowVram; // Restore state
         this.hasRendered = false;
         this.render();
     }
@@ -790,6 +796,11 @@ class QpRender extends HTMLElement {
                             ${this.models.length === 0 ? '<sl-option value="" disabled>No models found</sl-option>' : ''}
                         </sl-select>
 
+                        ${this.modelType === 'flux' ? `
+                            <sl-checkbox id="low-vram-check" ${this.useLowVram ? 'checked' : ''} style="margin-top: 0.5rem;">Low VRAM / FP8 Mode</sl-checkbox>
+                            <div style="font-size: 0.8rem; color: #94a3b8; margin-left: 1.7rem;">Use NF4 (HF) or FP8 (Local) quantization to save VRAM.</div>
+                        ` : ''}
+
                         ${this.modelType !== 'flux' ? `
                         <sl-select label="Sampler" value="${this.selectedSampler}" id="sampler-select" size="small" hoist>
                             ${this.samplers.map(s => `<sl-option value="${s.replace(/ /g, '_')}">${s}</sl-option>`).join('')}
@@ -799,89 +810,88 @@ class QpRender extends HTMLElement {
                             <sl-option value="">Default</sl-option>
                             ${this.vaes.map(v => `<sl-option value="${v}">${v}</sl-option>`).join('')}
                         </sl-select>
-                    </div>
-                    ` : ''}
+                        ` : ''}
 
-                    ${(this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-UPSCALER' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT') ? `
-                        <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 0.8rem; border: 1px solid rgba(16, 185, 129, 0.2); margin-top: 1rem; width: 100%; box-sizing: border-box;">
-                            <div style="display: flex; align-items: center; gap: 0.5rem; color: #10b981; font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem;">
-                                <sl-icon name="${this.tagName === 'QP-UPSCALER' ? 'aspect-ratio' : 'magic'}"></sl-icon> 
-                                ${this.tagName === 'QP-UPSCALER' ? 'Upscale Influence (Denoising)' : (this.tagName.includes('PAINT') ? 'Inpainting Strength' : 'Transformation Strength')}
-                            </div>
-                            <input type="range" id="denoising-slider" min="0" max="1" step="0.01" value="${this.denoisingStrength}" 
-                                style="width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); appearance: none; cursor: pointer; outline: none;">
-                            <div id="denoising-label" style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.6rem; font-family: monospace; font-weight: 600;">
-                                Current: ${this.denoisingStrength.toFixed(2)}
-                            </div>
-
-                            ${this.tagName === 'QP-UPSCALER' ? `
-                                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                                    <sl-select id="upscale-factor" label="Scale Factor" value="${this.upscaleFactor || 2}" size="small" style="flex:1;" hoist>
-                                        <sl-option value="1.5">1.5x</sl-option>
-                                        <sl-option value="2">2x</sl-option>
-                                        <sl-option value="4">4x</sl-option>
-                                    </sl-select>
-                                    <sl-select id="tile-size" label="Tile Size" value="${this.tileSize || 768}" size="small" style="flex:1;" hoist>
-                                        <sl-option value="512">512</sl-option>
-                                        <sl-option value="768">768</sl-option>
-                                        <sl-option value="1024">1024</sl-option>
-                                    </sl-select>
+                        ${(this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-UPSCALER' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT') ? `
+                            <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 0.8rem; border: 1px solid rgba(16, 185, 129, 0.2); margin-top: 1rem; width: 100%; box-sizing: border-box;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; color: #10b981; font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem;">
+                                    <sl-icon name="${this.tagName === 'QP-UPSCALER' ? 'aspect-ratio' : 'magic'}"></sl-icon> 
+                                    ${this.tagName === 'QP-UPSCALER' ? 'Upscale Influence (Denoising)' : (this.tagName.includes('PAINT') ? 'Inpainting Strength' : 'Transformation Strength')}
                                 </div>
-                            ` : ''}
-                        </div>
-                        <style>
-                            #denoising-slider::-webkit-slider-thumb {
-                                appearance: none;
-                                width: 16px;
-                                height: 16px;
-                                border-radius: 50%;
-                                background: #10b981;
-                                cursor: pointer;
-                                border: 2px solid #fff;
-                                box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                            }
-                            #denoising-slider::-moz-range-thumb {
-                                width: 16px;
-                                height: 16px;
-                                border-radius: 50%;
-                                background: #10b981;
-                                cursor: pointer;
-                                border: 2px solid #fff;
-                                box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                            }
-                        </style>
-                        </style>
-                    ` : ''}
+                                <input type="range" id="denoising-slider" min="0" max="1" step="0.01" value="${this.denoisingStrength}" 
+                                    style="width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); appearance: none; cursor: pointer; outline: none;">
+                                <div id="denoising-label" style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.6rem; font-family: monospace; font-weight: 600;">
+                                    Current: ${this.denoisingStrength.toFixed(2)}
+                                </div>
 
-
-                    
-                    <div class="status-area" id="preview-area" style="${this.lastImageUrl ? 'cursor: pointer;' : ''}">
-                        ${this.lastImageUrl ? `
-                            <img src="${this.lastImageUrl}" alt="Generated image">
-                        ` : `
-                            <sl-icon name="image" style="font-size: 3rem; opacity: 0.3;"></sl-icon>
-                            <div style="font-size: 0.9rem;">Ready to generate</div>
-                        `}
-                        ${this.isGenerating ? `
-                            <div style="position: absolute; inset:0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 10;">
-                                <sl-spinner style="font-size: 2rem; --indicator-color: #10b981;"></sl-spinner>
-                                ${this._activeTasks > 1 ? `
-                                    <div style="position:absolute; bottom:10px; right:10px; background:#10b981; color:white; padding:2px 8px; border-radius:10px; font-size:0.7rem; font-weight:800;">
-                                        ${this._activeTasks} JOBS
+                                ${this.tagName === 'QP-UPSCALER' ? `
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                                        <sl-select id="upscale-factor" label="Scale Factor" value="${this.upscaleFactor || 2}" size="small" style="flex:1;" hoist>
+                                            <sl-option value="1.5">1.5x</sl-option>
+                                            <sl-option value="2">2x</sl-option>
+                                            <sl-option value="4">4x</sl-option>
+                                        </sl-select>
+                                        <sl-select id="tile-size" label="Tile Size" value="${this.tileSize || 768}" size="small" style="flex:1;" hoist>
+                                            <sl-option value="512">512</sl-option>
+                                            <sl-option value="768">768</sl-option>
+                                            <sl-option value="1024">1024</sl-option>
+                                        </sl-select>
                                     </div>
                                 ` : ''}
                             </div>
+                            <style>
+                                #denoising-slider::-webkit-slider-thumb {
+                                    appearance: none;
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 50%;
+                                    background: #10b981;
+                                    cursor: pointer;
+                                    border: 2px solid #fff;
+                                    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                                }
+                                #denoising-slider::-moz-range-thumb {
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 50%;
+                                    background: #10b981;
+                                    cursor: pointer;
+                                    border: 2px solid #fff;
+                                    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                                }
+                            </style>
                         ` : ''}
-                    </div>
-                    
-                    <div style="display: flex; gap: 0.5rem; width: 100%;">
-                        <sl-button class="gen-btn" variant="primary" size="large" id="gen-btn" style="flex: 3;">
-                            <sl-icon slot="prefix" name="play-fill"></sl-icon>
-                            Generate
-                        </sl-button>
-                        <sl-button class="stop-btn" variant="danger" size="large" id="stop-btn" outline style="flex: 1;">
-                            <sl-icon name="stop-fill"></sl-icon>
-                        </sl-button>
+
+                        <div class="status-area" id="preview-area" style="${this.lastImageUrl ? 'cursor: pointer;' : ''}">
+                            ${this.lastImageUrl ? `
+                                <img src="${this.lastImageUrl}" alt="Generated image">
+                            ` : `
+                                <sl-icon name="image" style="font-size: 3rem; opacity: 0.3;"></sl-icon>
+                                <div style="font-size: 0.9rem;">Ready to generate</div>
+                            `}
+                            ${this.isGenerating ? `
+                                <div style="position: absolute; inset:0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 10;">
+                                    <sl-spinner style="font-size: 2rem; --indicator-color: #10b981;"></sl-spinner>
+                                    ${this._activeTasks > 1 ? `
+                                        <div style="position:absolute; bottom:10px; right:10px; background:#10b981; color:white; padding:2px 8px; border-radius:10px; font-size:0.7rem; font-weight:800;">
+                                            ${this._activeTasks} JOBS
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                        </div>
+                        
+                        <div style="display: flex; gap: 0.5rem; width: 100%;">
+                            <sl-button class="gen-btn" variant="primary" size="large" id="gen-btn" style="flex: 3;">
+                                <sl-icon slot="prefix" name="play-fill"></sl-icon>
+                                Generate
+                            </sl-button>
+                            ${this.isGenerating ? `
+                                <sl-button class="stop-btn" variant="danger" size="large" id="stop-btn" outline style="flex: 1;">
+                                    <sl-icon name="stop-fill"></sl-icon>
+                                </sl-button>
+                            ` : ''}
+                        </div>
                     </div>
                 </div>
             </qp-cartridge>
@@ -894,6 +904,11 @@ class QpRender extends HTMLElement {
         this.shadowRoot.getElementById('model-select')?.addEventListener('sl-change', (e) => {
             this.selectedModel = e.target.value;
         });
+
+        // Flux Low VRAM Listener
+        const lowVramCheck = this.shadowRoot.getElementById('low-vram-check');
+        if (lowVramCheck) lowVramCheck.addEventListener('sl-change', (e) => this.useLowVram = e.target.checked);
+
         const samplerSelect = this.shadowRoot.getElementById('sampler-select');
         if (samplerSelect) {
             samplerSelect.addEventListener('sl-change', (e) => {

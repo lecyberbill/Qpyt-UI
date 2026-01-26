@@ -10,7 +10,7 @@ class ImageGenerationRequest(BaseModel):
     model_name: Optional[str] = Field(None, description="Nom du fichier .safetensors spécifique")
     width: int = Field(1024, ge=256, le=2048)
     height: int = Field(1024, ge=256, le=2048)
-    guidance_scale: float = Field(7.0, ge=1.0, le=20.0)
+    guidance_scale: float = Field(7.0, ge=0.0, le=30.0)
     num_inference_steps: int = Field(30, ge=1, le=100)
     seed: Optional[int] = None
     vae_name: Optional[str] = Field(None, description="Nom du fichier VAE spécifique")
@@ -23,6 +23,7 @@ class ImageGenerationRequest(BaseModel):
     controlnet_image: Optional[str] = Field(None, description="Image de contrôle en Base64 (Depth map, Canny, etc.)")
     controlnet_conditioning_scale: float = Field(0.7, ge=0.0, le=2.0, description="Force de l'influence ControlNet")
     controlnet_model: Optional[str] = Field("diffusers/controlnet-depth-sdxl-1.0", description="Nom du modèle ControlNet sur HF ou chemin local")
+    low_vram: bool = Field(False, description="Activer le mode faible VRAM (quantization) pour Flux")
 # --- LE CONTRAT DE SORTIE ---
 class ImageGenerationResponse(BaseModel):
     request_id: uuid.UUID
