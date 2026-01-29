@@ -13,8 +13,8 @@
         }
     },
     {
-        "id": "qp-upscaler-007",
-        "type": "qp-upscaler",
+        "id": "qp-tiled-upscaler-007",
+        "type": "qp-tiled-upscaler",
         "props": {
             "upscale_method": "tiled_diffusion"
         }

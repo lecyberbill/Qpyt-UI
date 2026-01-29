@@ -4,6 +4,7 @@
     "LORAS_DIR": "models/loras",
     "FLUX_MODELS_DIR": "models/flux",
     "SD3_MODELS_DIR": "models/sd3",
+    "ZIMAGE_MODELS_DIR": "models/zit",
     "WAN_MODELS_DIR": "models/wan",
     "DEPTH_MODEL_PATH": "models/depth",
     "MUSICGEN_MODEL_PATH": "facebook/musicgen-medium",

@@ -35,7 +35,8 @@ from diffusers import (
     SD3Transformer2DModel,
     BitsAndBytesConfig,
     StableDiffusionXLControlNetPipeline,
-    ControlNetModel)
+    ControlNetModel,
+    ZImagePipeline)
 from transformers import CLIPTextModel, T5EncoderModel, T5TokenizerFast
 # Suppress CLIP token limit warnings for Flux (as we rely on T5)
 import logging
@@ -60,7 +61,7 @@ class ModelManager:
     _pipeline = None
     _compel = None
     _current_model_path = None
-    _current_model_type = None # 'sdxl', 'flux', 'sd3'
+    _current_model_type = None # 'sdxl', 'flux', 'sd3', 'zimage'
     _current_is_img2img = False
     _current_is_inpaint = False
     _current_is_inpaint = False
@@ -327,7 +328,8 @@ class ModelManager:
                                 'sdxl': (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline),
                                 'flux': (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline),
                                 'sd3': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline),
-                                'sd3_5_turbo': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline)
+                                'sd3_5_turbo': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline),
+                                'zimage': (ZImagePipeline, None, None)
                             }
                             txt_class, img_class, inp_class = base_pipes.get(model_type, (None, None, None))
                             if is_inpaint:
@@ -552,9 +554,11 @@ class ModelManager:
                         print(f"Loading ControlNet weights from {cn_path}...")
                         
                         if cn_path.is_file() or str(cn_path).endswith(('.safetensors', '.pth', '.ckpt')):
+                             print(f"Loading single-file ControlNet: {cn_path}")
                              controlnet = ControlNetModel.from_single_file(
                                 str(cn_path),
-                                torch_dtype=torch.float16
+                                torch_dtype=torch.float16,
+                                use_safetensors=True
                              )
                         else:
                              # Assume directory or HF repo
@@ -570,14 +574,26 @@ class ModelManager:
                         components["controlnet"] = controlnet
                         cls._pipeline = StableDiffusionXLControlNetPipeline(**components)
                         
-                        cls._pipeline = StableDiffusionXLControlNetPipeline(**components)
-                        
                         cls._current_has_controlnet = True
                         cls._current_controlnet_name = controlnet_model_name
                     except Exception as e:
                         import traceback
                         print(traceback.format_exc())
-                        print(f"Failed to load ControlNet: {e}")
+                        
+                        # Analyze error to give better feedback
+                        err_str = str(e).lower()
+                        print(f"RAW CONTROLNET ERROR: {e}") 
+
+                        if "config.json" in err_str or "stable-diffusion-v1-5" in err_str:
+                             # Try fallback: Maybe network issue prevented config fetch?
+                             # Or it's a valid SDXL model that diffusers failed to recognize.
+                             print("  > Hint: This error often means Diffusers failed to identify the model architecture.")
+                             print("  > Ensure you are connected to the internet (for config fallback) or that the file is not corrupted.")
+                             raise ValueError(f"ControlNet Loading Failed: {e}. (If this is 'MistoLine' or similar SDXL model, ensure it's a valid .safetensors file).")
+                        
+                        elif "size mismatch" in err_str:
+                             raise ValueError(f"Shape mismatch: '{controlnet_model_name}' is likely not an SDXL ControlNet. Please ensure you are using a ControlNet made for SDXL.")
+
                         raise e
                 else:
                     cls._current_has_controlnet = False
@@ -702,6 +718,11 @@ class ModelManager:
                         torch_dtype=torch.bfloat16
                     )
                 is_quantized = True
+            
+
+                        
+
+
 
             # Device-specific initialization
             if model_type == 'sdxl':
@@ -759,6 +780,7 @@ class ModelManager:
                 if model_type == 'flux':
                     print("Enabling Sequential CPU Offload for Flux...")
                     cls._pipeline.enable_sequential_cpu_offload()
+
                 elif vram_gb >= 10:
                     print(f"Detected {vram_gb:.1f}GB VRAM >= 10GB. Enabling FULL GPU speed for {model_type}...")
                     cls._pipeline.to(config.DEVICE)
@@ -776,8 +798,8 @@ class ModelManager:
                 try:
                     import xformers
                     cls._pipeline.enable_xformers_memory_efficient_attention()
-                except ImportError:
-                    pass
+                except Exception as e:
+                    print(f"[Optimization] xformers/triton issue: {e}")
 
             # Update current state if we loaded or switched
             cls._current_model_path = model_path
@@ -1221,15 +1243,38 @@ class ModelManager:
         upscaled_base = input_image.resize((target_w, target_h), Image.LANCZOS)
         
         # 2. Setup Pipeline
-        model_type = cls._current_model_type or 'sdxl'
-        m_name = model_name or os.path.basename(cls._current_model_path) if cls._current_model_path else config.DEFAULT_MODEL
+        # 2. Setup Pipeline
+        m_name = model_name or (os.path.basename(cls._current_model_path) if cls._current_model_path else config.DEFAULT_MODEL)
         
-        if model_type == 'flux':
-            model_path = os.path.join(config.get('FLUX_MODELS_DIR', 'models/flux'), m_name)
-        elif model_type in ['sd3', 'sd3_5_turbo']:
-            model_path = os.path.join(config.get('SD3_MODELS_DIR', 'models/sd3'), m_name)
+        # Detect model type based on file location
+        flux_dir = config.get('FLUX_MODELS_DIR', 'models/flux')
+        sd3_dir = config.get('SD3_MODELS_DIR', 'models/sd3')
+        sdxl_dir = config.MODELS_DIR
+        
+        flux_path = os.path.join(flux_dir, m_name)
+        sd3_path = os.path.join(sd3_dir, m_name)
+        sdxl_path = os.path.join(sdxl_dir, m_name)
+        
+        if os.path.exists(flux_path):
+            model_type = 'flux'
+            model_path = flux_path
+        elif os.path.exists(sd3_path):
+            model_type = 'sd3' # Generic SD3 handler
+            model_path = sd3_path
+        elif os.path.exists(sdxl_path):
+            model_type = 'sdxl'
+            model_path = sdxl_path
         else:
-            model_path = os.path.join(config.MODELS_DIR, m_name)
+            # Fallback for absolute paths or unmanaged files
+            if os.path.exists(m_name):
+                 model_path = m_name
+                 # Simple heuristic for type if possible, else default to current or sdxl
+                 # For now, we'll assume if the user provided a full path outside, we rely on current type or default
+                 model_type = cls._current_model_type or 'sdxl'
+            else:
+                 print(f"[Upscaler] Warning: Model {m_name} not found. Defaulting to SDXL/Current.")
+                 model_type = cls._current_model_type or 'sdxl' 
+                 model_path = sdxl_path
 
         pipe, compel = cls.get_pipeline(
             model_type=model_type,
@@ -1395,6 +1440,33 @@ def list_models(model_type: str) -> list:
         directory = Path(config.get('FLUX_MODELS_DIR', ''))
     elif model_type in ['sd3', 'sd3_5_turbo']:
         directory = Path(config.get('SD3_MODELS_DIR', ''))
+    elif model_type == 'zimage':
+        # For Z-Image, we list the PARENT directories if they are treated as models, 
+        # BUT based on our loading logic we treat the .safetensors file as the entry point?
+        # Actually our loading logic (lines 711+) takes 'model_path' as the base dir.
+        # But list_models usually lists FILES. 
+        # Let's list the zIMAGE_MODELS_DIR content. 
+        # Since the user has distinct files for transformer/vae/text_encoder in one folder,
+        # we might want to list "folders" or just a dummy entry?
+        # Wait, the user said they have "G:\models\zit\qwen..." etc.
+        # In our Preset, "selectedModel" is "z-image-turbo".
+        # If we return "z-image-turbo", the frontend will pick it.
+        # Let's return subdirectory names or just the files if they are self-contained.
+        # Given the "Hybrid Loading Logic", we pointed to "model_path" as the BASE DIR in get_pipeline.
+        # So we should probably return a list of valid 'configurations' or just let the user pick the folder?
+        # A simple approach for now: List the ZIMAGE_MODELS_DIR itself if it's the model "name", or list subdirectories.
+        # User config preset says: "selectedModel": "z-image-turbo".
+        # If "z-image-turbo" is a folder inside "G:\models\zit", then we list folders.
+        # If "G:\models\zit" contains the files directly, then "z-image-turbo" might be a dummy name.
+        # Let's assume we list subdirectories as model names OR specific .safetensors if single file.
+        # Given the complex loading, let's look at what get_pipeline expects.
+        # get_pipeline(..., model_path, ...) -> if zimage: "Loading ... from {model_path} (Base Dir)..."
+        # And config.ZIMAGE_MODELS_DIR is "G:\models\zit". 
+        # If we pass "z-image-turbo", the path becomes "G:\models\zit\z-image-turbo".
+        # If the user put files directly in "G:\models\zit", then we might need to pass "." or just handle it.
+        # Let's assume the user has a subfolder "z-image-turbo" OR we support files.
+        # Let's list subdirectories first.
+        directory = Path(config.get('ZIMAGE_MODELS_DIR', ''))
     else:
         directory = Path(config.MODELS_DIR)
     
@@ -1410,14 +1482,25 @@ def list_models(model_type: str) -> list:
 
 def list_vaes() -> list:
     """Lists available VAE files."""
-    directory = Path(config.get('VAE_DIR', ''))
-    if not directory or not directory.exists():
-        return []
+    directories = [Path(config.get('VAE_DIR', ''))]
     
+    # Also check Z-Image models dir for VAEs (e.g. zImageTurbo_vae.safetensors)
+    zimage_dir = Path(config.get('ZIMAGE_MODELS_DIR', ''))
+    if zimage_dir and zimage_dir.exists():
+        directories.append(zimage_dir)
+        
     vaes = []
-    for ext in ['*.safetensors', '*.pt', '*.ckpt']:
-        vaes.extend([f.name for f in directory.glob(ext)])
-    return sorted(vaes)
+    for directory in directories:
+        if not directory or not directory.exists():
+            continue
+        for ext in ['*.safetensors', '*.ckpt', '*.pt']:
+            # For Z-Image dir, only include files with 'vae' in name to avoid pollution
+            for f in directory.glob(ext):
+                if directory == zimage_dir and 'vae' not in f.name.lower():
+                    continue
+                vaes.append(f.name)
+    
+    return sorted(list(set(vaes)))
 
 def list_samplers() -> list:
     """Lists default available samplers (schedulers)."""

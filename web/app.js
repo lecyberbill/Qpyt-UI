@@ -362,6 +362,10 @@ class QpytApp {
             });
 
             // 2. Process bricks list (Create or Reuse)
+            console.log("[App] Workflow Reconciliation Started. Bricks:", bricks.length);
+            const qpElements = customElements.get ? ['q-upscaler-v3', 'qp-prompt', 'qp-render-sdxl'].map(tag => `${tag}: ${customElements.get(tag) ? 'YES' : 'NO'}`) : 'N/A';
+            console.log("[App] Custom Registry Check:", qpElements);
+
             bricks.forEach(brick => {
                 if (!brick.type) return;
 
@@ -370,11 +374,45 @@ class QpytApp {
                 if (el) {
                     existingMap.delete(brick.id); // Mark as used
                 } else {
-                    // CREATE: New brick
-                    el = document.createElement(brick.type);
-                    el.setAttribute('brick-id', brick.id);
-                    // Add listeners only once on creation
-                    this.setupBrickListeners(el);
+                    try {
+                        // CREATE: New brick
+                        // Sanitize type
+                        const safeType = brick.type.trim().toLowerCase();
+                        if (safeType !== brick.type) {
+                            console.warn(`[App] Sanitized brick type '${brick.type}' -> '${safeType}'`);
+                        }
+
+                        // Validate standard custom element name (roughly: a-z, digits, hyphen, must contain hyphen)
+                        if (!safeType.includes('-') || !/^[a-z][a-z0-9-]*$/.test(safeType)) {
+                            console.error(`[App] Invalid brick type detected: '${safeType}'`);
+                            // Fallback to div to prevent crash
+                            el = document.createElement('div');
+                            el.innerHTML = `<div style="color:red;padding:1em;border:1px solid red">Invalid Brick Type: ${safeType}</div>`;
+                        } else {
+                            console.log(`[App] Creating element: '${safeType}'`);
+                            try {
+                                el = document.createElement(safeType);
+                            } catch (ce_err) {
+                                console.error(`[App] document.createElement('${safeType}') failed:`, ce_err);
+                                // Fallback to div to prevent crash
+                                el = document.createElement('div');
+                                el.innerHTML = `<div style="color:red;padding:1em;border:5px solid red; background: white; z-index: 9999; position: relative;">
+                        <b>CRITICAL ERROR adding module: ${safeType}</b><br>
+                        Error: ${ce_err.name}: ${ce_err.message}<br>
+                        Please check developer console (F12) for full details.
+                    </div>`;
+                            }
+                        }
+                        if (!el) throw new Error("createElement returned null");
+                        el.setAttribute('brick-id', brick.id);
+                        // Add listeners only once on creation
+                        this.setupBrickListeners(el);
+                    } catch (e) {
+                        const charCodes = brick.type.split('').map(c => c.charCodeAt(0)).join(',');
+                        console.error(`[App] Failed to create brick '${brick.type}' (Codes: ${charCodes}):`, e);
+                        this.notify(`Critical Error: Could not render '${brick.type}'`, "danger");
+                        return;
+                    }
                 }
 
                 // Update Properties

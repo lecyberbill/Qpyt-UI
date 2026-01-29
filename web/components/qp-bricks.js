@@ -1,3 +1,4 @@
+console.log("[QpBricks] Script version v36 loading...");
 // Prompt Cartridge
 class QpPrompt extends HTMLElement {
     static get observedAttributes() { return ['brick-id']; }
@@ -736,7 +737,8 @@ class QpRender extends HTMLElement {
             'sdxl': 'SDXL Generator',
             'flux': 'FLUX Generator',
             'sd3': 'SD3.5 Generator',
-            'sd3_5_turbo': 'SD3.5 Turbo (Lightning)'
+            'sd3_5_turbo': 'SD3.5 Turbo (Lightning)',
+
         };
         const title = this.title || titleMap[this.modelType] || 'Generator';
         const brickId = this.getAttribute('brick-id') || '';
@@ -1254,6 +1256,7 @@ class QpInpaint extends QpRender {
                     }
                     .editor-controls {
                         display: flex;
+                        flex-wrap: wrap;
                         align-items: center;
                         gap: 24px;
                         padding: 16px 32px;
@@ -1457,6 +1460,8 @@ class QpOutpaint extends QpRender {
             const { image, mask, width, height } = await this.preparePayload(srcBase64);
 
             // Standard Gather Params
+            const qpElements = customElements.get ? ['q-upscaler-v3', 'qp-prompt', 'qp-render-sdxl'].map(tag => `${tag}: ${customElements.get(tag) ? 'YES' : 'NO'}`) : 'N/A';
+            console.log("[App] Custom Registry Check:", qpElements);
             const promptEl = document.querySelector('qp-prompt');
             const loraManager = document.querySelector('qp-lora-manager');
             const settingsEl = document.querySelector('qp-settings');
@@ -1750,140 +1755,178 @@ class QpOutpaint extends QpRender {
         if (stopBtn) stopBtn.onclick = () => this.isGenerating = false;
     }
 }
-customElements.define('qp-outpaint', QpOutpaint);
-
 // Tiled Upscaler Brick
-class QpUpscaler extends QpRender {
+// Tiled Upscaler Brick
+// Tiled Upscaler Brick
+class UpscalerV3 extends HTMLElement {
     constructor() {
-        super('sdxl'); // Default to SDXL for upscaling details
+        super();
+        console.log("[UpscalerV3] Constructor starting...");
+        this.attachShadow({ mode: 'open' });
+
         this.modelType = 'upscale';
-        this.title = "Tiled Upscaler";
-        this.icon = "aspect-ratio";
-        this.denoisingStrength = 0.2; // Default for upscalers
+        this.selectedModel = '';
+        this.selectedSampler = "dpm++_2m_sde_karras";
+        this.denoisingStrength = 0.2;
         this.upscaleFactor = 2;
         this.tileSize = 768;
+
+        this.vaes = [];
+        this.samplers = [];
+        this.models = [];
+        this.isGenerating = false;
+        this.lastImageUrl = '';
+        this.currentStep = 0;
+        this.totalSteps = 0;
+        this.hasRendered = false;
+        console.log("[UpscalerV3] Constructor finished successfully.");
+    }
+
+    connectedCallback() {
+        this.render();
+        this.fetchModels();
+    }
+
+    async fetchModels() {
+        try {
+            const response = await fetch(`/models/${this.modelType}`);
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.models = result.models;
+                if (this.models.length > 0 && !this.selectedModel) {
+                    this.selectedModel = this.models[0];
+                }
+                const select = this.shadowRoot.getElementById('model-select');
+                if (select) {
+                    select.innerHTML = this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('');
+                    select.value = this.selectedModel;
+                }
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async submitAndPollTask(endpoint, payload) {
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const submission = await response.json();
+            if (submission.status === 'queued') {
+                const taskId = submission.task_id;
+                while (this.isGenerating) {
+                    const statusResp = await fetch(`/queue/status/${taskId}`);
+                    const task = await statusResp.json();
+                    if (task.status === 'COMPLETED') return task.result;
+                    if (task.status === 'FAILED') throw new Error(task.error);
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            }
+        } catch (e) { console.error(e); throw e; }
     }
 
     async generate() {
-        // Override generate to use /upscale endpoint
         if (!window.qpyt_app) return;
-        if (!this._activeTasks) this._activeTasks = 0;
-        this._activeTasks++;
         this.isGenerating = true;
         this.render();
-
-        const promptEl = document.querySelector('qp-prompt');
-        const loraManager = document.querySelector('qp-lora-manager');
-        const settingsEl = document.querySelector('qp-settings');
-        const stylesEl = document.querySelector('qp-styles');
-
-        let { prompt, negative_prompt } = promptEl ? promptEl.getValue() : { prompt: "", negative_prompt: "" };
-
-        if (stylesEl && typeof stylesEl.applyStyles === 'function') {
-            const styled = stylesEl.applyStyles(prompt, negative_prompt);
-            prompt = styled.prompt;
-            negative_prompt = styled.negative_prompt;
-        }
-        const settings = settingsEl ? settingsEl.getValue() : {};
-
-        const imageSource = document.querySelector('qp-image-input');
-        let image = imageSource?.getImage() || null;
-
-        if (!image && window.qpyt_app?.lastImage) {
-            image = window.qpyt_app.lastImage;
-            console.log("[Upscaler] Auto-picking last generated image:", image);
-        }
-
-        if (!image) {
-            window.qpyt_app.notify("Upscaler requires a Source Image or a previous generation!", "danger");
-            return;
-        }
-
-        this.isGenerating = true;
-        this.hasRendered = false;
-        this.render();
-
-        if (this.previewInterval) clearInterval(this.previewInterval);
-        this.previewInterval = setInterval(() => this.pollPreview(), 500);
 
         try {
-            this.currentStep = 0;
-            this.totalSteps = 0;
-            this.lastImageUrl = '';
-            this.updateStatus();
+            const promptEl = document.querySelector('qp-prompt');
+            const { prompt, negative_prompt } = promptEl ? promptEl.getValue() : { prompt: "", negative_prompt: "" };
+
+            const imageSource = document.querySelector('qp-image-input');
+            let image = imageSource?.getImage() || window.qpyt_app?.lastImage;
+
+            if (!image) {
+                window.qpyt_app.notify("Upscaler requires an image!", "danger");
+                this.isGenerating = false;
+                this.render();
+                return;
+            }
 
             const payload = {
-                prompt,
-                negative_prompt,
-                model_type: this.modelType,
+                prompt, negative_prompt,
+                model_type: 'upscale',
                 model_name: this.selectedModel,
                 image: image,
                 upscale_factor: this.upscaleFactor,
                 denoising_strength: this.denoisingStrength,
                 tile_size: this.tileSize,
-                output_format: settings.output_format || "png",
-                loras: loraManager ? loraManager.getValues().loras : [],
-                ...settings
+                output_format: "png"
             };
 
             const data = await this.submitAndPollTask('/upscale', payload);
-            if (!data) return; // Interrupted
+            if (data) {
+                this.lastImageUrl = data.image_url;
+                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+                const dashboard = document.querySelector('qp-dashboard');
+                if (dashboard) dashboard.addEntry(data);
 
-            console.log("[Upscaler] Completed:", data);
-            this.lastImageUrl = data.image_url;
+                window.dispatchEvent(new CustomEvent('qpyt-output', {
+                    detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                    bubbles: true,
+                    composed: true
+                }));
 
-            // Show Warnings if any
-            if (data.warnings && data.warnings.length > 0) {
-                data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
+                window.qpyt_app.notify("Upscale complete", "success");
             }
-
-            if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
-
-            // Signal global output
-            window.dispatchEvent(new CustomEvent('qpyt-output', {
-                detail: {
-                    url: this.lastImageUrl,
-                    brickId: this.getAttribute('brick-id'),
-                    params: {
-                        seed: data.metadata?.seed || null,
-                        prompt: prompt,
-                        model: this.selectedModel,
-                        upscale_factor: this.upscaleFactor
-                    }
-                },
-                bubbles: true,
-                composed: true
-            }));
-
-            const dashboard = document.querySelector('qp-dashboard');
-            if (dashboard) dashboard.addEntry(data);
-            window.qpyt_app.notify("Upscale complete", "success");
-        }
-        catch (e) {
+        } catch (e) {
             console.error(e);
-            window.qpyt_app.notify("Connection error", "danger");
+            window.qpyt_app.notify("Upscale failed", "danger");
         } finally {
-            this._activeTasks--;
-            if (this._activeTasks <= 0) {
-                this._activeTasks = 0;
-                this.isGenerating = false;
-                if (this.previewInterval) clearInterval(this.previewInterval);
-            }
-            this.hasRendered = false;
+            this.isGenerating = false;
             this.render();
         }
     }
 
     render() {
-        super.render();
-        const cartridge = this.shadowRoot.querySelector('qp-cartridge');
-        if (cartridge) {
-            cartridge.setAttribute('title', this.title);
-            cartridge.setAttribute('icon', this.icon);
-        }
+        const brickId = this.getAttribute('brick-id') || '';
+        this.shadowRoot.innerHTML = `
+            <style>
+                .upscale-container { display: flex; flex-direction: column; gap: 0.8rem; padding: 0.5rem; }
+            </style>
+            <qp-cartridge title="Tiled Upscaler" icon="aspect-ratio" type="generator" brick-id="${brickId}">
+                <div class="upscale-container">
+                    <sl-select id="model-select" label="Upscaler Model" value="${this.selectedModel}" hoist>
+                        ${this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')}
+                    </sl-select>
+
+                    <sl-input type="number" label="Scale Factor" value="${this.upscaleFactor}" min="1.1" step="0.1" id="scale-input"></sl-input>
+                    <sl-input type="number" label="Denoise" value="${this.denoisingStrength}" min="0.05" max="1" step="0.05" id="denoise-input"></sl-input>
+
+                    <sl-button variant="primary" id="btn-gen" ?loading="${this.isGenerating}">
+                        <sl-icon slot="prefix" name="aspect-ratio"></sl-icon>
+                        Upscale
+                    </sl-button>
+                </div>
+            </qp-cartridge>
+        `;
+
+        this.shadowRoot.getElementById('btn-gen').addEventListener('click', () => this.generate());
+
+        const scaleInput = this.shadowRoot.getElementById('scale-input');
+        if (scaleInput) scaleInput.addEventListener('sl-change', (e) => this.upscaleFactor = parseFloat(e.target.value));
+
+        const denoiseInput = this.shadowRoot.getElementById('denoise-input');
+        if (denoiseInput) denoiseInput.addEventListener('sl-change', (e) => this.denoisingStrength = parseFloat(e.target.value));
+
+        const modelSelect = this.shadowRoot.getElementById('model-select');
+        if (modelSelect) modelSelect.addEventListener('sl-change', (e) => this.selectedModel = e.target.value);
     }
 }
-customElements.define('qp-upscaler', QpUpscaler);
+console.log("[UpscalerV3] Registering 'q-upscaler-v3'...");
+customElements.define('q-upscaler-v3', UpscalerV3);
+
+class QpLegacyUpscaler extends HTMLElement {
+    constructor() { super(); this.attachShadow({ mode: 'open' }); }
+    connectedCallback() {
+        this.shadowRoot.innerHTML = `<div style="padding:1rem;color:orange;border:1px solid orange">⚠️ Legacy 'qp-upscaler' brick detected.<br>Please remove it and add 'Tiled Upscaler' from the library.</div>`;
+    }
+}
+customElements.define('qp-upscaler', QpLegacyUpscaler);
 
 // Final Output Brick
 class QpImageOut extends HTMLElement {
@@ -3148,3 +3191,7 @@ class QpControlNet extends HTMLElement {
     getStrength() { return this.controlNetStrength; }
 }
 customElements.define('qp-controlnet', QpControlNet);
+
+// Specific Generators (Manual mapping for Z-Image)
+class QpRenderZImage extends QpRender { constructor() { super('zimage'); } }
+customElements.define('qp-render-zimage', QpRenderZImage);

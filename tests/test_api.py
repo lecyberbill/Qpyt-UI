@@ -23,14 +23,10 @@ def test_image_generation_valid():
         
         assert response.status_code == 200
         json_resp = response.json()
-        assert json_resp["status"] == "success"
-        data = json_resp["data"]
-        assert "image_url" in data
-        assert data["image_url"].startswith("/view/")
+        assert json_resp["status"] == "queued"
+        assert "task_id" in json_resp
         
-        # Vérification physique du fichier généré
-        file_path = Path(data["image_url"].replace("/view/", "outputs/"))
-        assert file_path.exists(), f"Le fichier {file_path} n'a pas été créé."
+        # We don't verify the file existence here as it's async
 
 def test_validation_error():
     """Vérifie que le contrat Pydantic bloque les mauvaises entrées."""

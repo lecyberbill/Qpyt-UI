@@ -20,9 +20,11 @@ class QpytUI:
             {"id": "qp-render-sdxl", "label": "SDXL Generator", "type": "generator", "icon": "lightning-charge"},
             {"id": "qp-render-flux", "label": "FLUX Generator", "type": "generator", "icon": "magic"},
             {"id": "qp-render-sd35turbo", "label": "SD3.5 Turbo (Lightning)", "type": "generator", "icon": "lightning-charge"},
+
             {"id": "qp-music-gen", "label": "Music Generator (Medium)", "type": "generator", "icon": "music-note-beamed"},
             {"id": "qp-img2img", "label": "Img2Img Refiner", "type": "generator", "icon": "magic"},
-            {"id": "qp-upscaler", "label": "Tiled Upscaler", "type": "generator", "icon": "aspect-ratio"},
+
+            {"id": "q-upscaler-v3", "label": "Tiled Upscaler", "type": "generator", "icon": "aspect-ratio"},
             {"id": "qp-lora-manager", "label": "LoRA Manager", "type": "generator", "icon": "layers-half"},
             {"id": "qp-controlnet", "label": "ControlNet", "type": "tool", "icon": "diagram-3"},
             {"id": "qp-openpose-editor", "label": "OpenPose Editor", "type": "tool", "icon": "person-standing"},
@@ -35,11 +37,15 @@ class QpytUI:
             {"id": "qp-outpaint", "label": "Outpainting", "type": "generator", "icon": "arrows-angle-expand"},
             {"id": "qp-vectorize", "label": "Vectorize (SVG)", "type": "generator", "icon": "vector-pen"},
             {"id": "qp-filter", "label": "Photo Editing", "type": "output", "icon": "sliders"},
+            {"id": "qp-canvas", "label": "Sketch Canvas", "type": "input", "icon": "brush"},
             {"id": "qp-queue-monitor", "label": "Job Queue Monitor", "type": "setting", "icon": "collection"}
         ]
 
     def load_workflow(self, workflow_data: List[Dict[str, Any]]):
         """Replaces the current workflow with new data."""
+        if not isinstance(workflow_data, list):
+            print("Error: Workflow data must be a list of bricks.")
+            return self
         self.workflow = workflow_data
         # self._sort_workflow() # Disabled for manual order
         return self
@@ -77,16 +83,18 @@ class QpytUI:
             "qp-llm-prompter": 1,
             "qp-img2prompt": 2,
             "qp-prompt": 2,
+            "qp-canvas": 2,
             "qp-translator": 3,
             "qp-settings": 10,
             "qp-render-sdxl": 100,
             "qp-render-flux": 101,
             "qp-render-sd35turbo": 102,
+
             "qp-music-gen": 102,
             "qp-img2img": 103,
             "qp-inpaint": 103,
             "qp-outpaint": 103,
-            "qp-upscaler": 104,
+            "q-upscaler-v3": 104,
             "qp-rembg": 105,
             "qp-depth-estimator": 105,
             "qp-normal-map": 106,
@@ -105,7 +113,7 @@ class QpytUI:
         self.workflow.sort(key=lambda b: priority.get(b["type"], 50))
 
     def remove_brick(self, brick_id: str):
-        self.workflow = [b for b in self.workflow if b.get("id") != brick_id]
+        self.workflow = [b for b in self.workflow if isinstance(b, dict) and b.get("id") != brick_id]
         # self._sort_workflow()
         return self
 

@@ -18,7 +18,7 @@
     },
     {
         "id": "upscale-1",
-        "type": "qp-upscaler",
+        "type": "qp-tiled-upscaler",
         "props": {
             "upscaleFactor": 2
         }

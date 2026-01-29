@@ -58,7 +58,7 @@ class QpLibrary extends HTMLElement {
             generators: {
                 label: "Generators (AI)",
                 icon: "magic",
-                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-sd35turbo", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager", "qp-controlnet"]
+                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-sd35turbo", "qp-render-zimage", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager", "qp-controlnet"]
             },
             audio: {
                 label: "Generators (Audio)",
@@ -68,7 +68,7 @@ class QpLibrary extends HTMLElement {
             utilities: {
                 label: "Utilities & FX",
                 icon: "layers",
-                ids: ["qp-upscaler", "qp-rembg", "qp-depth-estimator", "qp-normal-map", "qp-openpose-editor", "qp-vectorize", "qp-filter"]
+                ids: ["q-upscaler-v3", "qp-rembg", "qp-depth-estimator", "qp-normal-map", "qp-openpose-editor", "qp-vectorize", "qp-filter", "qp-canvas"]
             },
             system: {
                 label: "Export & Settings",
@@ -193,7 +193,10 @@ class QpLibrary extends HTMLElement {
 
         this.shadowRoot.getElementById('open-drawer').addEventListener('click', () => this.toggleDrawer());
         this.shadowRoot.querySelectorAll('.brick-item').forEach(item => {
-            item.addEventListener('click', () => this.addBrick(item.dataset.id));
+            item.addEventListener('click', () => {
+                console.log("[Library] Clicking brick:", item.dataset.id);
+                this.addBrick(item.dataset.id)
+            });
         });
     }
 }

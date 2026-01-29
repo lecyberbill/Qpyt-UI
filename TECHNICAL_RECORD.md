@@ -69,8 +69,8 @@ This document tracks architectural decisions, implemented features, and the road
     - Migrated Flux and SD 3.5 pipelines to `torch.bfloat16`. 
     - Prevents NaN/OOM issues in Transformer blocks compared to standard FP16.
 - **Iterative GGUF/Safetensors Fallback**:
-    - Implemented a `while` loop fallback system in `core/generator.py` for Flux and SD 3.5.
-    - Automatically identifies missing components (VAE, CLIP, T5) and fetches them from official Hugging Face repositories.
+    - Implemented a `while` loop fallback system in `core/generator.py` for SD 3.5.
+    - **Hybrid Loading for Flux**: Replaced iterative fallback with a robust component assembly (Transformer from file + T5/VAE from Hub) to ensure correct GPU offloading and native speed (~22s vs 1700s).
 - **Unit Testing Infrastructure**:
     - Created `tests/test_loader.py` to verify model loading states and API stability.
     - Integrated environment-aware regression testing (using `.venv`).
@@ -89,6 +89,11 @@ This document tracks architectural decisions, implemented features, and the road
     - Refactored `QpRender` base class to support `submitAndPollTask` lifecycle, maintaining standard generation flow while leveraging the backend queue.
 - **Queue-Optimized Preset**:
     - Added `SDXL_Queue_Optimized.json` including the new Job Monitor and pre-configured for batch generation.
+
+### Flux Native Performance (V0.9.8 Updates)
+- **Hybrid Load Strategy**: 
+    - Resolved critical performance regression in Flux execution.
+    - Aligned loading logic with Pycnaptiq-AI to enforce correct component mapping on GPU.
 
 ## 3. Memory & Performance Strategy
 - **SDXL/Flux**: Use of `enable_model_cpu_offload()` to stay under 12GB VRAM.
