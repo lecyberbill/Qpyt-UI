@@ -101,7 +101,7 @@ def infer_depth(image_input: str) -> str:
 
         # 4. Save
         now = datetime.now()
-        day_folder = now.strftime("%Y-%m-%d")
+        day_folder = now.strftime("%Y_%m_%d")
         file_name = f"depth_{uuid.uuid4().hex[:8]}.png"
         
         final_output_dir = Path(config.OUTPUT_DIR) / day_folder

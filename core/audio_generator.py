@@ -195,7 +195,7 @@ class MusicGenerator:
             
             # Save Logic
             now = datetime.now()
-            day_folder = now.strftime("%Y-%m-%d")
+            day_folder = now.strftime("%Y_%m_%d")
             # Base name
             base_name = f"music_{uuid.uuid4().hex[:8]}"
             

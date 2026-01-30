@@ -46,7 +46,7 @@ def save_to_disk(image_url: str, custom_path: str, pattern: str, output_format: 
     # Basic tokens for now: {date}, {time}, {uuid}, {ext}
     now = datetime.now()
     tokens = {
-        "{date}": now.strftime("%Y-%m-%d"),
+        "{date}": now.strftime("%Y_%m_%d"),
         "{time}": now.strftime("%H%M%S"),
         "{uuid}": uuid.uuid4().hex[:8],
         "{ext}": output_format.lower().replace("jpeg", "jpg")

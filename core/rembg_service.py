@@ -57,7 +57,7 @@ def remove_background(image_input: str) -> str:
 
     # 3. Save
     now = datetime.now()
-    day_folder = now.strftime("%Y-%m-%d")
+    day_folder = now.strftime("%Y_%m_%d")
     file_name = f"rembg_{uuid.uuid4().hex[:8]}.png"
     
     final_output_dir = Path(config.OUTPUT_DIR) / day_folder

@@ -261,23 +261,27 @@ class QpytApp {
             });
             const result = await response.json();
             if (result.status === 'success') {
-                // 2. Merge local states while PRESERVING local order
-                // Identify new bricks (those in result but not in current)
-                const newBricks = result.workflow.filter(
-                    rb => !currentStates.find(lb => lb.id === rb.id)
-                );
+                // 2. Add New Brick Safely (Client is Source of Truth)
+                // We only care about the NEW brick created by the backend.
+                // We do NOT want to sync with result.workflow because the server might have reset/desynced.
+                const newBrickId = result.brick_id;
+                const newBrick = result.workflow.find(b => b.id === newBrickId);
 
-                // Construct merged list: Existing Local Order + New Bricks
-                const mergedWorkflow = [
-                    ...currentStates.map(state => {
-                        // Update props from backend if needed, or keep local
-                        const backendBrick = result.workflow.find(b => b.id === state.id);
-                        return backendBrick ? { ...backendBrick, props: state.props } : null;
-                    }).filter(b => b !== null), // Remove any deleted on backend (corner case)
-                    ...newBricks
-                ];
-
-                this.mountWorkflow(mergedWorkflow);
+                if (newBrick) {
+                    // Simple Priority Heuristic for "Smart Insert"
+                    // qp-styles (priority 1) and inputs should be near top
+                    const lowPriorityTypes = ['qp-styles', 'qp-prompt', 'qp-image-input'];
+                    if (lowPriorityTypes.includes(newBrick.type)) {
+                        currentStates.splice(0, 0, newBrick); // Insert at top
+                    } else {
+                        currentStates.push(newBrick); // Append at bottom
+                    }
+                    this.mountWorkflow(currentStates);
+                    this.notify("Module added successfully", "success");
+                } else {
+                    console.error("New brick not found in response", result);
+                    this.notify("Error: Backend did not return new brick", "danger");
+                }
                 this.notify("Module added successfully", "success");
             } else {
                 this.notify(`Error: ${result.message}`, "danger");
@@ -299,12 +303,8 @@ class QpytApp {
             });
             const result = await response.json();
             if (result.status === 'success') {
-                // 2. Merge local states
-                const mergedWorkflow = result.workflow.map(brick => {
-                    const saved = currentStates.find(s => s.id === brick.id);
-                    if (saved) return { ...brick, props: saved.props };
-                    return brick;
-                });
+                // 2. Remove locally
+                const mergedWorkflow = currentStates.filter(b => b.id !== brickId);
                 this.mountWorkflow(mergedWorkflow);
                 this.notify("Module removed", "primary");
             } else {

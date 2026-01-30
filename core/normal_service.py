@@ -87,7 +87,7 @@ def compute_normal_map(image_input: str, strength: float = 2.0) -> str:
         res_img = Image.fromarray(normal_map, mode='RGB')
         
         now = datetime.now()
-        day_folder = now.strftime("%Y-%m-%d")
+        day_folder = now.strftime("%Y_%m_%d")
         file_name = f"normal_{uuid.uuid4().hex[:8]}.png"
         
         final_output_dir = Path(config.OUTPUT_DIR) / day_folder

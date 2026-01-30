@@ -281,10 +281,10 @@ class ModelManager:
         if vae_name == 'Default' or not vae_name:
             vae_name = None
 
-        if model_type in ['img2img', 'upscale']:
-            # Use current model type if available, otherwise default to sdxl
-            model_type = cls._current_model_type or 'sdxl'
-            is_img2img = True
+        # REMOVED: Dangerous aliasing logic that caused Flux->Img2Img crash
+        # if model_type in ['img2img', 'upscale']:
+        #     model_type = cls._current_model_type or 'sdxl'
+        #     is_img2img = True
 
         # CRITICAL: Always unload auxiliary models (Florence-2, LLM, etc.) to free VRAM
         # before any Stable Diffusion operation (load or switch).
@@ -870,9 +870,11 @@ class ModelManager:
         import time
         start_time = time.time()
         
-        # Map 'img2img' alias to base architecture
+        # Map 'img2img' alias to base architecture (Default: SDXL)
         if model_type == 'img2img':
-            model_type = ModelManager._current_model_type or 'sdxl'
+            # Fix: Do NOT inherit _current_model_type (which could be Flux)
+            # The Img2Img brick is designed for SDXL.
+            model_type = 'sdxl'
             
         # Normalize VAE name
         if vae_name == 'Default' or not vae_name:
@@ -982,12 +984,14 @@ class ModelManager:
                 
                 import logging
                 logging.getLogger("qpyt-ui").info(f"Processed input image: {width}x{height}")
-                import logging
-                logging.getLogger("qpyt-ui").info(f"Processed input image: {width}x{height}")
             except Exception as e:
                 import logging
                 logging.getLogger("qpyt-ui").error(f"Failed to process input image: {e}")
                 init_image = None
+        
+        # Safety: If Img2Img mode but image failed to load, abort
+        if is_now_img2img and init_image is None:
+             raise ValueError("Img2Img mode requires a valid source image. Failed to process input image.")
 
         # Prepare Mask if Inpaint
         init_mask = None
@@ -1392,7 +1396,7 @@ class ModelManager:
         # Save logic
         from datetime import datetime
         now = datetime.now()
-        day_folder = now.strftime("%Y-%m-%d")
+        day_folder = now.strftime("%Y_%m_%d")
         
         ext = output_format.lower()
         if ext not in ['png', 'jpg', 'jpeg', 'webp']:

@@ -966,12 +966,12 @@ customElements.define('qp-render-flux', QpRenderFlux);
 class QpRenderSd35Turbo extends QpRender {
     constructor() {
         super('sd3_5_turbo');
-        this.title = "SD3.5 Turbo (Lightning)";
         this.defaultSteps = 4;
         this.defaultGuidance = 1.0;
     }
 
     connectedCallback() {
+        this.title = "SD3.5 Turbo (Lightning)";
         super.connectedCallback();
     }
 
@@ -993,8 +993,12 @@ class QpImg2Img extends QpRender {
     constructor() {
         super('sdxl'); // Default to SDXL
         this.modelType = 'img2img'; // Special type to force slider
+    }
+
+    connectedCallback() {
         this.title = "Img2Img Refiner";
         this.icon = "magic";
+        super.connectedCallback();
     }
 
     render() {
@@ -1012,8 +1016,6 @@ customElements.define('qp-img2img', QpImg2Img);
 class QpInpaint extends QpRender {
     constructor() {
         super('sdxl');
-        this.title = "Inpainting";
-        this.icon = "brush";
         this.brushSize = 40;
         this.isDrawing = false;
         this.denoisingStrength = 0.9;
@@ -1023,6 +1025,8 @@ class QpInpaint extends QpRender {
     }
 
     connectedCallback() {
+        this.title = "Inpainting";
+        this.icon = "brush";
         super.connectedCallback();
         this._onImageChanged = (e) => this.syncWithSourceImage(e.detail?.base64);
         window.addEventListener('image-changed', this._onImageChanged);
@@ -1383,8 +1387,6 @@ customElements.define('qp-inpaint', QpInpaint);
 class QpOutpaint extends QpRender {
     constructor() {
         super('sdxl');
-        this.title = "Outpainting";
-        this.icon = "arrows-angle-expand";
         this.expandTop = 0;
         this.expandBottom = 0;
         this.expandLeft = 0;
@@ -1393,6 +1395,8 @@ class QpOutpaint extends QpRender {
     }
 
     connectedCallback() {
+        this.title = "Outpainting";
+        this.icon = "arrows-angle-expand";
         super.connectedCallback();
         // Listen for image availability to update preview
         window.addEventListener('image-changed', () => this.render());
@@ -1755,6 +1759,8 @@ class QpOutpaint extends QpRender {
         if (stopBtn) stopBtn.onclick = () => this.isGenerating = false;
     }
 }
+customElements.define('qp-outpaint', QpOutpaint);
+
 // Tiled Upscaler Brick
 // Tiled Upscaler Brick
 // Tiled Upscaler Brick
