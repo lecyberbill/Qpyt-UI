@@ -32,6 +32,9 @@ sentencepiece
 protobuf
 requests
 watchfiles
+psutil
+nvidia-ml-py
 
 # Optional (for future features)
 bitsandbytes>=0.43.0
+

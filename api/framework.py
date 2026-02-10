@@ -38,7 +38,8 @@ class QpytUI:
             {"id": "qp-vectorize", "label": "Vectorize (SVG)", "type": "generator", "icon": "vector-pen"},
             {"id": "qp-filter", "label": "Photo Editing", "type": "output", "icon": "sliders"},
             {"id": "qp-canvas", "label": "Sketch Canvas", "type": "input", "icon": "brush"},
-            {"id": "qp-queue-monitor", "label": "Job Queue Monitor", "type": "setting", "icon": "collection"}
+            {"id": "qp-queue-monitor", "label": "Job Queue Monitor", "type": "setting", "icon": "collection"},
+            {"id": "qp-monitor", "label": "System Monitor", "type": "setting", "icon": "activity"}
         ]
 
     def load_workflow(self, workflow_data: List[Dict[str, Any]]):
@@ -102,7 +103,9 @@ class QpytUI:
             "qp-controlnet": 120,    # Added explicitly
             "qp-openpose-editor": 121, # Added explicitly
             "qp-filter": 150,
+            "qp-filter": 150,
             "qp-queue-monitor": 11,
+            "qp-monitor": 12,
             "qp-image-out": 200,
             "qp-save-to-disk": 201,
         }

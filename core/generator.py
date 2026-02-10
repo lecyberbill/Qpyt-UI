@@ -449,9 +449,11 @@ class ModelManager:
                     try:
                         # 1. Load Transformer from local file
                         print(f"  -> Loading FluxTransformer2DModel from {model_path}...")
+                        
+                        load_kwargs = {"torch_dtype": torch.bfloat16}
                         transformer = FluxTransformer2DModel.from_single_file(
                             model_path,
-                            torch_dtype=torch.bfloat16
+                            **load_kwargs
                         )
                         
                         # 2. Load T5 Encoder (Text Encoder 2) explicitly
@@ -477,19 +479,44 @@ class ModelManager:
                         cls._pipeline.transformer = transformer
                         cls._pipeline.text_encoder_2 = text_encoder_2
                         
-                        is_quantized = False # We loaded full precision (bfloat16) transformer
-                        
                     except Exception as e:
                         print(f"[Flux Load Error] Hybrid loading failed: {e}")
                         print("Falling back to standard from_single_file...")
                         # Fallback to the old method if the above fails (e.g. no internet for bfl_repo)
                         try:
+                            # Standard load first
                             cls._pipeline = pipeline_class.from_single_file(
                                 model_path,
                                 torch_dtype=torch.bfloat16
                             )
                         except Exception as fallback_err:
-                            raise fallback_err
+                            err_str = str(fallback_err).lower()
+                            if "missing" in err_str or "component" in err_str:
+                                 print("[Flux Fallback] Missing components detected. Loading auxiliary components manually...")
+                                 
+                                 # We need CLIP, T5, and VAE
+                                 print(f"  -> Loading CLIPTextModel from {bfl_repo}...")
+                                 text_encoder = CLIPTextModel.from_pretrained(bfl_repo, subfolder="text_encoder", torch_dtype=torch.bfloat16)
+                                 
+                                 print(f"  -> Loading T5EncoderModel from {bfl_repo}...")
+                                 text_encoder_2 = T5EncoderModel.from_pretrained(bfl_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
+                                 
+                                 print(f"  -> Loading VAE from {bfl_repo}...")
+                                 vae = AutoencoderKL.from_pretrained(bfl_repo, subfolder="vae", torch_dtype=torch.bfloat16)
+                                 
+                                 fb_kwargs = {
+                                     "text_encoder": text_encoder,
+                                     "text_encoder_2": text_encoder_2,
+                                     "vae": vae,
+                                     "torch_dtype": torch.bfloat16
+                                 }
+                                 
+                                 cls._pipeline = pipeline_class.from_single_file(
+                                    model_path,
+                                    **fb_kwargs
+                                 )
+                            else:
+                                raise fallback_err
 
                 elif os.path.isdir(model_path) or not model_path.endswith((".safetensors", ".ckpt")):
                     # Hugging Face or Directory Loading

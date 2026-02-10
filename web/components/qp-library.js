@@ -73,7 +73,7 @@ class QpLibrary extends HTMLElement {
             system: {
                 label: "Export & Settings",
                 icon: "gear",
-                ids: ["qp-settings", "qp-image-out", "qp-save-to-disk", "qp-queue-monitor"]
+                ids: ["qp-settings", "qp-image-out", "qp-save-to-disk", "qp-queue-monitor", "qp-monitor"]
             }
         };
 

@@ -30,8 +30,19 @@ class QpPrompt extends HTMLElement {
         this.hasRendered = true;
         const brickId = this.getAttribute('brick-id') || '';
         this.shadowRoot.innerHTML = `
+            <style>
+                .expand-btn {
+                    position: absolute;
+                    top: 0;
+                    right: 0;
+                    z-index: 10;
+                }
+            </style>
             <qp-cartridge title="Prompt" type="input" brick-id="${brickId}">
-                <div style="display: flex; flex-direction: column; gap: 1rem; height: 100%;">
+                <div style="display: flex; flex-direction: column; gap: 1rem; height: 100%; position: relative;">
+                    <sl-tooltip content="Open Editor">
+                        <sl-icon-button class="expand-btn" name="arrows-angle-expand" label="Expand"></sl-icon-button>
+                    </sl-tooltip>
                     <sl-textarea id="prompt-input" name="prompt" label="Positive Prompt" placeholder="What do you want to see?" resize="none" style="flex-grow: 1;"></sl-textarea>
                     <sl-textarea id="negative-input" name="negative_prompt" label="Negative Prompt" value="${this.negativePrompt}" placeholder="What do you want to avoid?" resize="none" style="height: 120px;"></sl-textarea>
                     <div style="margin-top: auto; color: #64748b; font-size: 0.8rem;">
@@ -39,7 +50,48 @@ class QpPrompt extends HTMLElement {
                     </div>
                 </div>
             </qp-cartridge>
+
+            <sl-dialog label="Prompt Editor" class="prompt-dialog" style="--width: 80vw;">
+                <div style="display: flex; flex-direction: column; gap: 1rem; height: 70vh;">
+                     <sl-textarea id="dialog-prompt" label="Positive Prompt" style="flex-grow: 2; height: 100%;" resize="none"></sl-textarea>
+                     <sl-textarea id="dialog-negative" label="Negative Prompt" style="flex-grow: 1; height: 100%;" resize="none"></sl-textarea>
+                </div>
+                <div slot="footer">
+                    <sl-button variant="primary" class="save-btn">Apply & Close</sl-button>
+                    <sl-button variant="default" class="close-btn">Cancel</sl-button>
+                </div>
+            </sl-dialog>
         `;
+
+        const dialog = this.shadowRoot.querySelector('.prompt-dialog');
+        const expandBtn = this.shadowRoot.querySelector('.expand-btn');
+        const saveBtn = this.shadowRoot.querySelector('.save-btn');
+        const closeBtn = this.shadowRoot.querySelector('.close-btn');
+
+        const pInput = this.shadowRoot.querySelector('#prompt-input');
+        const nInput = this.shadowRoot.querySelector('#negative-input');
+        const dPInput = this.shadowRoot.querySelector('#dialog-prompt');
+        const dNInput = this.shadowRoot.querySelector('#dialog-negative');
+
+        if (expandBtn) {
+            expandBtn.addEventListener('click', () => {
+                dPInput.value = pInput.value;
+                dNInput.value = nInput.value;
+                dialog.show();
+            });
+        }
+
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                pInput.value = dPInput.value;
+                nInput.value = dNInput.value;
+                dialog.hide();
+            });
+        }
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => dialog.hide());
+        }
     }
     getValue() {
         return {

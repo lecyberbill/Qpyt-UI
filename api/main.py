@@ -23,6 +23,7 @@ import core.analyzer as analyzer_lib
 from core.translator import TranslationManager
 from core.llm_prompter import LlmPrompterManager
 from core.filters import ImageEditor
+from api.monitor import router as monitor_router
 from starlette.concurrency import run_in_threadpool
 from fastapi import UploadFile, File, Form
 from PIL import Image
@@ -102,6 +103,8 @@ app.add_middleware(
 app.mount("/view", StaticFiles(directory=config.OUTPUT_DIR), name="outputs")
 # /static -> web/
 app.mount("/static", StaticFiles(directory="web"), name="web")
+
+app.include_router(monitor_router)
 
 # Workflow & Presets Persistence Endpoints
 WORKFLOWS_DIR = Path(config.base_dir) / "workflows"
