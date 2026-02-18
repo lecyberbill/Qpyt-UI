@@ -8,10 +8,11 @@ aiofiles
 torch>=2.2.0
 torchvision>=0.17.0
 torchaudio>=2.2.0
-diffusers>=0.27.0
-transformers>=4.57.0
+diffusers>=0.36.0
+transformers>=4.48.0
 accelerate>=0.29.0
-safetensors>=0.4.2
+safetensors>=0.4.5
+huggingface-hub>=0.26.0
 scipy
 numpy
 pydub>=0.25.1

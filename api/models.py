@@ -81,4 +81,15 @@ class NormalRequest(BaseModel):
 class AudioGenerationRequest(BaseModel):
     prompt: str = Field(..., description="Description de la musique")
     duration: int = Field(10, ge=1, le=300, description="Durée en secondes")
-    guidance_scale: float = Field(3.0, ge=1.0, le=10.0, description="Respect du prompt")
+
+class SpriteRequest(BaseModel):
+    prompt: str = Field(..., description="Description du sprite à animer")
+    negative_prompt: Optional[str] = Field("blur, fuzzy, extra limbs, malformed", description="Éléments à exclure")
+    width: int = Field(256, ge=64, le=1024, description="Largeur du sprite (256 recommandé)")
+    height: int = Field(256, ge=64, le=1024, description="Hauteur du sprite (256 recommandé)")
+    frames: int = Field(16, ge=8, le=64, description="Nombre de frames (16 standard)")
+    steps: int = Field(8, ge=1, le=50, description="Étapes d'inférence (8 pour rapide)")
+    guidance: float = Field(7.5, ge=1.0, le=20.0, description="Guidance Scale")
+    seed: Optional[int] = None
+    model_name: Optional[str] = Field(None, description="Nom du modèle SD1.5 à utiliser")
+    loras: Optional[List[Dict[str, Any]]] = Field(None, description="Liste des LoRAs")

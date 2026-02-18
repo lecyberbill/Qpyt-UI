@@ -2,7 +2,10 @@ import asyncio
 import uuid
 import time
 from typing import Dict, Any, List, Optional, Callable
+import logging
 from pydantic import BaseModel
+
+logger = logging.getLogger("qpyt-ui")
 
 class TaskStatus(BaseModel):
     task_id: str
@@ -75,7 +78,7 @@ class QueueManager:
                 task = self.tasks[task_id]
                 task.status = "RUNNING"
                 task.started_at = time.time()
-                print(f"[QueueManager] Processing task {task_id}...")
+                logger.info(f"[QueueManager] Processing task {task_id} ({task.type})...")
 
                 try:
                     # Execute the actual generation function
@@ -91,10 +94,11 @@ class QueueManager:
                     
                     task.result = result
                     task.status = "COMPLETED"
+                    logger.info(f"[QueueManager] Task {task_id} completed.")
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
-                    print(f"[QueueManager] Task {task_id} failed: {e}")
+                    logger.error(f"[QueueManager] Task {task_id} failed: {e}")
                     task.status = "FAILED"
                     task.error = str(e)
                 finally:
@@ -103,7 +107,7 @@ class QueueManager:
                     self.queue.task_done()
                     
             except Exception as e:
-                print(f"[QueueManager] Worker loop error: {e}")
+                logger.error(f"[QueueManager] Worker loop error: {e}")
                 await asyncio.sleep(1)
 
     def get_task(self, task_id: str) -> Optional[TaskStatus]:

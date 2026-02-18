@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V0.9.7 (Task Queue & VRAM Stability)
+**Current Version**: V0.9.9 (Flux 2 integration & Klein 4B)
 **Goal**: Asynchronous task orchestration, serialized worker, and real-time job monitoring.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -90,10 +90,17 @@ This document tracks architectural decisions, implemented features, and the road
 - **Queue-Optimized Preset**:
     - Added `SDXL_Queue_Optimized.json` including the new Job Monitor and pre-configured for batch generation.
 
-### Flux Native Performance (V0.9.8 Updates)
-- **Hybrid Load Strategy**: 
-    - Resolved critical performance regression in Flux execution.
-    - Aligned loading logic with Pycnaptiq-AI to enforce correct component mapping on GPU.
+### Flux Native Performance (V0.9.9 Updates)
+- **FLUX.2 Klein Supported Architecture**:
+    - Identified and implemented support for the 4B Klein architecture (5 double blocks, 20 single blocks).
+    - Added specialized `Flux2Pipeline` and `Flux2Transformer2DModel` integration.
+- **Manual Key Mapping (Alpha Checkpoints)**:
+    - Resolved critical weight loading issues for SFT/Alpha checkpoints by implementing a manual remapping for `x_embedder`, `context_embedder`, and `time_guidance_embed`.
+    - Implemented zero-initialization for missing guidance weights to eliminate random latent noise.
+- **Auto-Guidance Control**:
+    - Added automated detection of distilled models to enforce `guidance_scale=1.0`, ensuring optimal image quality without manual user intervention.
+- **Qwen2-based Text Encoding**:
+    - Patched the text encoding logic to correctly leverage `Qwen2` architectures (mistakenly tagged as Mistral3 in some repos), ensuring accurate prompt-to-image alignment.
 
 ## 3. Memory & Performance Strategy
 - **SDXL/Flux**: Use of `enable_model_cpu_offload()` to stay under 12GB VRAM.
@@ -134,6 +141,8 @@ This document tracks architectural decisions, implemented features, and the road
 - **V0.9.5**: LoRA Manager with Architecture Check, HTML Session History Logs, UI Safety Warnings.
 - **V0.9.6**: SD 3.5 Turbo NF4 Optimization, BFloat16 precision, Iterative GGUF/Safetensors Fallback.
 - **V0.9.7**: Task Queue System, Serialized Worker, Job Monitor Brick, and Asynchronous API Refactor.
+- **V0.9.8**: Minor performance tweaks and Flux alignment.
+- **V0.9.9**: FLUX.2 Klein Support, manual weight mapping, and auto-guidance logic.
 
 ---
 

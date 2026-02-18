@@ -12,8 +12,8 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 ## Key Features (V0.9)
 
 ### 🎨 Generative Imaging
-- **Multi-Engine Support**: Seamlessly switch between **SDXL**, **FLUX.1-Schnell**, and **SD 3.5 Turbo**.
-- **Lightning Generation**: Optimized NF4/T5-NF4 pipelines for high-speed generation with reduced VRAM footprint.
+- **Multi-Engine Support**: Seamlessly switch between **SDXL**, **FLUX.1-Schnell**, **SD 3.5 Turbo**, and **FLUX.2-Klein**.
+- **Lightning Generation**: Optimized NF4/T5-NF4 pipelines and specialized **Flux 2 Klein 4B** support for high-speed generation with reduced VRAM footprint.
 - **Tiled Upscaler**: High-fidelity upscaling (up to 4K+) using tiled diffusion to minimize VRAM usage.
 
 ### 🛠️ Advanced Editing Tools
@@ -58,7 +58,8 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 ### ⚡ Generators (AI Models)
 *The engines that create the content.*
 *   **SDXL Generator** (`qp-render-sdxl`): Stable Diffusion XL (High Quality).
-*   **FLUX Generator** (`qp-render-flux`): Black Forest Labs FLUX.1 (State of the Art).
+*   **FLUX Generator** (`qp-render-flux`): Black Forest Labs FLUX.1 (Schnell/Dev).
+*   **FLUX 2 Klein** (`qp-render-flux2`) **[NEW]**: Optimized Flux 2 architecture (4B) specifically for speed and quality on consumer hardware.
 *   **SD3.5 Turbo** (`qp-render-sd35turbo`): Latest Stability AI model (Lightning fast).
 *   **Music Generator** (`qp-music-gen`): AI Music generation (Facebook MusicGen).
 *   **Img2Img Refiner** (`qp-img2img`): refine an existing image (denoising strength).
@@ -138,6 +139,7 @@ python api/main.py
 Then open your browser at: **http://127.0.0.1:8000**
 
 ## Version History
+*   **V0.9.9**: **FLUX.2 Klein Support**, specialized weight mapping for Alpha/SFT checkpoints, automated guidance scaling (distilled models), and Qwen2-based text encoder integration.
 *   **V0.9.8**: **ControlNet Ecosystem** (Depth, Pose), **OpenPose Editor** (Canvas), **Depth Anything V2** Integration, and Memory Leak Fixes.
 *   **V0.9.7**: **Task Queue System**, Serialized Worker, Job Monitor Brick, and Asynchronous API Refactor for VRAM stability.
 *   **V0.9.6**: SD 3.5 Turbo NF4 Optimization, BFloat16 precision, Iterative GGUF/Safetensors Fallback, Preset System Integration.

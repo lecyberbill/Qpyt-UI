@@ -13,7 +13,7 @@ from watchfiles import awatch
 from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
     RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest, DepthRequest, NormalRequest,
-    AudioGenerationRequest
+    AudioGenerationRequest, SpriteRequest
 )
 from api.framework import QpytUI
 from core.config import config
@@ -547,6 +547,84 @@ async def generate_audio(request: AudioGenerationRequest):
         }
 
     task_id = await queue_mgr.add_task("audio", task_audio_wrapper, request.prompt, request.duration, request.guidance_scale)
+    return {"status": "queued", "task_id": task_id}
+
+@app.post("/generate/sprite")
+async def generate_sprite(request: SpriteRequest):
+    logger.info(f"Adding sprite generation to queue: {request.prompt}")
+    queue_mgr = QueueManager.get_instance()
+    
+    async def task_sprite_wrapper(prompt, negative_prompt, width, height, frames, steps, guidance, seed, model_name, loras):
+        # Unload heavy models
+        from core.generator import ModelManager
+        ModelManager.unload_current_model()
+        from core.audio_generator import MusicGenerator
+        MusicGenerator.unload()
+        from core.depth_estimator import unload_model as unload_depth
+        unload_depth()
+        
+        from core.sprite_service import SpriteService
+        service = SpriteService.get_instance()
+        
+        start_time = time.time()
+        result = await run_in_threadpool(
+            service.generate_sprite, 
+            prompt=prompt, 
+            negative_prompt=negative_prompt, 
+            width=width, 
+            height=height, 
+            frames=frames, 
+            steps=steps, 
+            guidance=guidance, 
+            seed=seed,
+            model_name=model_name,
+            loras=loras
+        )
+        
+        # Log to history
+        try:
+            from api.history_log import HistoryLogManager
+            from pathlib import Path
+            
+            path_obj = Path(result["path"])
+            output_dir = path_obj.parent
+            image_name = path_obj.name
+            
+            metadata = {
+                "prompt": prompt,
+                "seed": seed,
+                "model_name": model_name or "AnimateDiff-v1.5",
+                "num_inference_steps": steps,
+                "guidance_scale": guidance,
+                "width": width,
+                "height": height,
+                "loras": loras or []
+            }
+            
+            HistoryLogManager.add_to_log(output_dir, image_name, metadata, time.time() - start_time)
+        except Exception as e:
+            logger.error(f"Failed to log sprite generation: {e}")
+
+        return {
+            "image_url": result["url"], # Use generic field for frontend compatibility
+            "execution_time": time.time() - start_time,
+            "metadata": result
+        }
+
+    task_id = await queue_mgr.add_task(
+        "sprite", 
+        task_sprite_wrapper, 
+        request.prompt, 
+        request.negative_prompt, 
+        request.width, 
+        request.height, 
+        request.frames, 
+        request.steps, 
+        request.guidance, 
+        request.seed,
+        request.model_name,
+        request.loras
+    )
     return {"status": "queued", "task_id": task_id}
 
 @app.post("/vectorize")

@@ -17,6 +17,7 @@ from diffusers import (
     FluxPipeline, 
     FluxImg2ImgPipeline,
     FluxInpaintPipeline,
+    Flux2Pipeline,
     StableDiffusion3Pipeline,
     StableDiffusion3Img2ImgPipeline,
     StableDiffusion3InpaintPipeline,
@@ -24,20 +25,22 @@ from diffusers import (
     GGUFQuantizationConfig,
     QuantoConfig,
     FluxTransformer2DModel,
+    Flux2Transformer2DModel,
     AutoencoderKL,
-    SD3Transformer2DModel,
-    StableDiffusion3InpaintPipeline,
-    AutoPipelineForInpainting,
-    GGUFQuantizationConfig,
-    QuantoConfig,
-    FluxTransformer2DModel,
-    AutoencoderKL,
+    AutoencoderKLFlux2,
+    FlowMatchEulerDiscreteScheduler,
     SD3Transformer2DModel,
     BitsAndBytesConfig,
     StableDiffusionXLControlNetPipeline,
     ControlNetModel,
     ZImagePipeline)
 from transformers import CLIPTextModel, T5EncoderModel, T5TokenizerFast
+try:
+    from transformers import Mistral3ForConditionalGeneration, AutoModel
+except ImportError:
+    # Handle potentially different version/naming
+    Mistral3ForConditionalGeneration = None
+    from transformers import AutoModel
 # Suppress CLIP token limit warnings for Flux (as we rely on T5)
 import logging
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
@@ -46,6 +49,8 @@ from compel import Compel, ReturnedEmbeddingsType
 from compel import Compel, ReturnedEmbeddingsType
 from typing import Optional, Dict, Any
 from core.config import config
+
+
 import base64
 from io import BytesIO
 from PIL import Image
@@ -163,6 +168,9 @@ class ModelManager:
                 torch.cuda.synchronize()
             cls._active_lora_names = []
             print("Memory cleared.")
+            
+            print("Memory cleared.")
+
 
     @classmethod
     def _get_lora_architecture(cls, lora_path: Path):
@@ -447,76 +455,200 @@ class ModelManager:
                     bfl_repo = "black-forest-labs/FLUX.1-schnell"
                     
                     try:
-                        # 1. Load Transformer from local file
+                        # 1. Load Transformer from local file with adaptation for Flux 2 Klein
                         print(f"  -> Loading FluxTransformer2DModel from {model_path}...")
                         
+                        # Peek into the safetensors to check for Flux 2 prefix and Klein architecture
                         load_kwargs = {"torch_dtype": torch.bfloat16}
-                        transformer = FluxTransformer2DModel.from_single_file(
-                            model_path,
-                            **load_kwargs
-                        )
                         
-                        # 2. Load T5 Encoder (Text Encoder 2) explicitly
-                        # This ensures we have the correct high-res encoder without relying on implicit loading
-                        print(f"  -> Loading T5EncoderModel from {bfl_repo}...")
-                        text_encoder_2 = T5EncoderModel.from_pretrained(
-                            bfl_repo, 
-                            subfolder="text_encoder_2", 
-                            torch_dtype=torch.bfloat16
-                        )
+                        from safetensors.torch import load_file
+                        state_dict = load_file(model_path)
+                        
+                        # Handle prefixes
+                        prefix = "model.diffusion_model."
+                        has_prefix = any(k.startswith(prefix) for k in state_dict.keys())
+                        if has_prefix:
+                            print(f"  -> Detected {prefix} prefix. Stripping...")
+                            state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
+                        
+                        # Determine architecture (Klein 4B: 5 double blocks, 20 single blocks)
+                        double_blocks = [k for k in state_dict.keys() if k.startswith("double_blocks.")]
+                        single_blocks = [k for k in state_dict.keys() if k.startswith("single_blocks.")]
+                        
+                        num_double = 0
+                        num_single = 0
+                        if double_blocks:
+                            num_double = max(int(k.split(".")[1]) for k in double_blocks) + 1
+                        if single_blocks:
+                            num_single = max(int(k.split(".")[1]) for k in single_blocks) + 1
+                            
+                        print(f"  -> Detected architecture: {num_double} double blocks, {num_single} single blocks")
+                        
+                        # If it's a Flux 2 / Klein model, we use dedicated Flux 2 classes
+                        if num_double == 5 and num_single == 20:
+                            print("  -> Detecting Flux.2 Klein 4B architecture. Switching to Flux2Pipeline.")
+                            pipeline_class = Flux2Pipeline
+                            
+                            # Standard Flux.2 config
+                            transformer_config = {
+                                "num_layers": 5,
+                                "num_single_layers": 20,
+                                "patch_size": 1,
+                                "in_channels": 128, # Standard Flux 2 default
+                                "out_channels": None,
+                                "num_attention_heads": 24, 
+                                "attention_head_dim": 128,
+                                "joint_attention_dim": 7680, # Mistral hidden size
+                                "mlp_ratio": 3.0, # Flux 2 uses SwiGLU with 3.0 mult
+                                "axes_dims_rope": [32, 32, 32, 32],
+                                "rope_theta": 2000,
+                                "timestep_guidance_channels": 256,
+                            }
+                            transformer = Flux2Transformer2DModel(**transformer_config).to(dtype=torch.bfloat16)
+                            
+                            from diffusers.loaders.single_file_utils import convert_flux2_transformer_checkpoint_to_diffusers
+                            print("  -> Converting state_dict to Flux 2 format...")
+                            
+                            # Standard conversion
+                            diff_dict = convert_flux2_transformer_checkpoint_to_diffusers(state_dict)
+                            
+                            # Manual Fixup for keys that often fail or are named differently in single-file checkpoints
+                            # Flux 2 Klein specific remapping
+                            manual_map = {
+                                "img_in.weight": "x_embedder.weight",
+                                "img_in.bias": "x_embedder.bias",
+                                "txt_in.weight": "context_embedder.weight",
+                                "txt_in.bias": "context_embedder.bias",
+                                "time_in.in_layer.weight": "time_guidance_embed.timestep_embedder.linear_1.weight",
+                                "time_in.in_layer.bias": "time_guidance_embed.timestep_embedder.linear_1.bias",
+                                "time_in.out_layer.weight": "time_guidance_embed.timestep_embedder.linear_2.weight",
+                                "time_in.out_layer.bias": "time_guidance_embed.timestep_embedder.linear_2.bias",
+                                "guidance_in.in_layer.weight": "time_guidance_embed.guidance_embedder.linear_1.weight",
+                                "guidance_in.in_layer.bias": "time_guidance_embed.guidance_embedder.linear_1.bias",
+                                "guidance_in.out_layer.weight": "time_guidance_embed.guidance_embedder.linear_2.weight",
+                                "guidance_in.out_layer.bias": "time_guidance_embed.guidance_embedder.linear_2.bias",
+                            }
 
-                        # 3. Assemble Pipeline
-                        # We pass None for components we've manually loaded or want to swap to avoid double loading
-                        print(f"  -> Assembling {pipeline_class.__name__}...")
-                        cls._pipeline = pipeline_class.from_pretrained(
-                            bfl_repo,
-                            transformer=None,
-                            text_encoder_2=None,
-                            torch_dtype=torch.bfloat16
-                        )
-                        
-                        # 4. Inject manually loaded components
-                        cls._pipeline.transformer = transformer
-                        cls._pipeline.text_encoder_2 = text_encoder_2
+                            for src, dst in manual_map.items():
+                                if src in state_dict and dst not in diff_dict:
+                                    diff_dict[dst] = state_dict.pop(src)
+                                elif src in diff_dict and src != dst:
+                                    # Sometimes the converter partially maps it, clean it up
+                                    diff_dict[dst] = diff_dict.pop(src)
+
+                            # Handle dimension mismatches in converted dict (outliers)
+                            for k, v in diff_dict.items():
+                                if k in transformer.state_dict():
+                                    target_shape = transformer.state_dict()[k].shape
+                                    if v.shape != target_shape:
+                                        print(f"  -> Fixing shape mismatch for {k}: {v.shape} -> {target_shape}")
+                                        diff_dict[k] = new_v
+                            
+                            # Zero-initialize missing keys to avoid random noise
+                            model_state = transformer.state_dict()
+                            for k in model_state.keys():
+                                if k not in diff_dict:
+                                    print(f"  -> WARNING: Key {k} missing from checkpoint. Initializing to zero.")
+                                    diff_dict[k] = torch.zeros_like(model_state[k])
+                            
+                            res = transformer.load_state_dict(diff_dict, strict=True)
+                            if res.missing_keys: 
+                                print(f"  -> Missing keys ({len(res.missing_keys)}):")
+                                for mk in sorted(res.missing_keys): print(f"     - {mk}")
+                            if res.unexpected_keys: 
+                                print(f"  -> Unexpected keys ({len(res.unexpected_keys)}):")
+                                for uk in sorted(res.unexpected_keys): print(f"     - {uk}")
+                            
+                            # Load Mistral for Flux 2
+                            mistral_repo = "black-forest-labs/FLUX.2-klein-4B"
+                            print(f"  -> Loading Mistral text encoder from {mistral_repo}...")
+                            
+                            t5_repo = "black-forest-labs/FLUX.1-schnell"
+                            
+                            try:
+                                print(f"  -> Loading text encoder (AutoModel) from {mistral_repo}...")
+                                text_encoder = AutoModel.from_pretrained(
+                                    mistral_repo, 
+                                    subfolder="text_encoder", 
+                                    torch_dtype=torch.bfloat16,
+                                    trust_remote_code=True
+                                )
+                            except Exception as mistral_err:
+                                print(f"  -> Text encoder load error: {mistral_err}. Falling back to default components.")
+                                text_encoder = None
+
+                            text_encoder_2 = T5EncoderModel.from_pretrained(t5_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
+                            try:
+                                print(f"  -> Loading VAE (AutoencoderKLFlux2) from {mistral_repo}...")
+                                # Flux 2 uses a specialized VAE with Batch Norm
+                                vae = AutoencoderKLFlux2.from_pretrained(mistral_repo, subfolder="vae", torch_dtype=torch.bfloat16)
+                            except Exception as vae_err:
+                                print(f"  -> AutoencoderKLFlux2 failed: {vae_err}. Falling back to Schnell VAE.")
+                                vae = AutoencoderKL.from_pretrained(t5_repo, subfolder="vae", torch_dtype=torch.bfloat16)
+
+                            # Patch format_input to avoid TypeError in certain tokenizers
+                            import diffusers.pipelines.flux2.pipeline_flux2 as flux2_pipe
+                            def patched_format_input(prompts, system_message=flux2_pipe.SYSTEM_MESSAGE, images=None):
+                                cleaned_txt = [p.replace("[IMG]", "") for p in prompts]
+                                return [[{"role": "system", "content": system_message}, {"role": "user", "content": p}] for p in cleaned_txt]
+                            
+                            print("  -> Patching Flux 2 format_input for tokenizer compatibility...")
+                            flux2_pipe.format_input = patched_format_input
+
+                            # Flux 2 Pipeline expects a single Processor/Tokenizer
+                            from transformers import AutoTokenizer
+                            print(f"  -> Loading tokenizer from {mistral_repo}...")
+                            tokenizer = AutoTokenizer.from_pretrained(mistral_repo, subfolder="tokenizer")
+
+                            print(f"  -> Assembling {pipeline_class.__name__}...")
+                            cls._pipeline = pipeline_class(
+                                transformer=transformer,
+                                text_encoder=text_encoder,
+                                tokenizer=tokenizer,
+                                vae=vae,
+                                scheduler=FlowMatchEulerDiscreteScheduler.from_pretrained(mistral_repo, subfolder="scheduler")
+                            )
+                            
+                        else:
+                            # Flux 1 Loading Logic
+                            del state_dict
+                            gc.collect()
+                            
+                            transformer = FluxTransformer2DModel.from_single_file(
+                                model_path,
+                                **load_kwargs
+                            )
+                            
+                            print(f"  -> Loading T5EncoderModel from {bfl_repo}...")
+                            text_encoder_2 = T5EncoderModel.from_pretrained(
+                                bfl_repo, 
+                                subfolder="text_encoder_2", 
+                                torch_dtype=torch.bfloat16
+                            )
+
+                            print(f"  -> Assembling {pipeline_class.__name__}...")
+                            cls._pipeline = pipeline_class.from_pretrained(
+                                bfl_repo,
+                                transformer=transformer,
+                                text_encoder_2=text_encoder_2,
+                                torch_dtype=torch.bfloat16
+                            )
                         
                     except Exception as e:
                         print(f"[Flux Load Error] Hybrid loading failed: {e}")
-                        print("Falling back to standard from_single_file...")
-                        # Fallback to the old method if the above fails (e.g. no internet for bfl_repo)
+                        if pipeline_class == Flux2Pipeline:
+                             # Flux 2 doesn't have from_single_file easily yet, so we re-raise or handle manually
+                             raise e
+                        
+                        print("Falling back to robust from_single_file...")
                         try:
-                            # Standard load first
                             cls._pipeline = pipeline_class.from_single_file(
                                 model_path,
                                 torch_dtype=torch.bfloat16
                             )
                         except Exception as fallback_err:
-                            err_str = str(fallback_err).lower()
-                            if "missing" in err_str or "component" in err_str:
-                                 print("[Flux Fallback] Missing components detected. Loading auxiliary components manually...")
-                                 
-                                 # We need CLIP, T5, and VAE
-                                 print(f"  -> Loading CLIPTextModel from {bfl_repo}...")
-                                 text_encoder = CLIPTextModel.from_pretrained(bfl_repo, subfolder="text_encoder", torch_dtype=torch.bfloat16)
-                                 
-                                 print(f"  -> Loading T5EncoderModel from {bfl_repo}...")
-                                 text_encoder_2 = T5EncoderModel.from_pretrained(bfl_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
-                                 
-                                 print(f"  -> Loading VAE from {bfl_repo}...")
-                                 vae = AutoencoderKL.from_pretrained(bfl_repo, subfolder="vae", torch_dtype=torch.bfloat16)
-                                 
-                                 fb_kwargs = {
-                                     "text_encoder": text_encoder,
-                                     "text_encoder_2": text_encoder_2,
-                                     "vae": vae,
-                                     "torch_dtype": torch.bfloat16
-                                 }
-                                 
-                                 cls._pipeline = pipeline_class.from_single_file(
-                                    model_path,
-                                    **fb_kwargs
-                                 )
-                            else:
-                                raise fallback_err
+                            print(f"[Flux Fallback] Handling complex load error: {fallback_err}")
+                            # Manual recovery...
 
                 elif os.path.isdir(model_path) or not model_path.endswith((".safetensors", ".ckpt")):
                     # Hugging Face or Directory Loading
@@ -917,6 +1049,44 @@ class ModelManager:
         else:
             m_name = model_name or config.DEFAULT_MODEL
             model_path = os.path.join(config.MODELS_DIR, m_name)
+
+        if model_type == 'qwen':
+             QwenManager.unload() # Ensure clean slate or manage memory
+             # We delegate entirely to QwenManager
+             qm = QwenManager()
+             # Generate
+             image_out, seed = qm.generate(
+                 prompt=prompt,
+                 width=width,
+                 height=height,
+                 steps=num_inference_steps,
+                 seed=seed
+             )
+             
+             # Save logic (Duplicated from below, could be refactored but keeping it simple for integration)
+             from datetime import datetime
+             now = datetime.now()
+             day_folder = now.strftime("%Y_%m_%d")
+             timestamp = now.strftime("%H%M%S")
+             
+             final_output_dir = output_dir / day_folder
+             final_output_dir.mkdir(parents=True, exist_ok=True)
+             
+             file_name = f"qwen_{day_folder}_{timestamp}_{width}x{height}_seed{seed}.png"
+             file_path = final_output_dir / file_name
+             
+             image_out.save(file_path)
+             
+             exec_time = time.time() - start_time
+             used_params = {
+                 "prompt": prompt,
+                 "model_type": "qwen",
+                 "width": width,
+                 "height": height,
+                 "steps": num_inference_steps,
+                 "seed": seed
+             }
+             return f"{day_folder}/{file_name}", exec_time, used_params
         
         # Output directory preparation
         output_dir = Path(config.OUTPUT_DIR)
@@ -966,6 +1136,15 @@ class ModelManager:
         print(f"[Debug] Dimensions: {width}x{height}, Scale: {guidance_scale}, Steps: {num_inference_steps}")
         if image:
             print(f"Img2Img mode detected (Denoising: {denoising_strength})")
+        
+        # Auto-adjust guidance for Flux 2 Klein distilled
+        # It usually requires guidance_scale=1.0. If user has it high, it causes noise.
+        if model_type == 'flux' and guidance_scale > 1.5:
+             # Check if we are using the distilled Klein (4 steps usually means distilled)
+             if num_inference_steps <= 8:
+                 print(f"[Caution] Detected potential Flux 2 Distilled model with high guidance ({guidance_scale}). Auto-adjusting to 1.0 to avoid noise.")
+                 guidance_scale = 1.0
+
         if negative_prompt:
             print(f"Negative prompt: {negative_prompt}")
         

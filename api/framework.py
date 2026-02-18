@@ -19,7 +19,9 @@ class QpytUI:
             {"id": "qp-img2prompt", "label": "Image-to-Prompt", "type": "input", "icon": "camera"},
             {"id": "qp-render-sdxl", "label": "SDXL Generator", "type": "generator", "icon": "lightning-charge"},
             {"id": "qp-render-flux", "label": "FLUX Generator", "type": "generator", "icon": "magic"},
+            {"id": "qp-render-flux-klein", "label": "FLUX.2 Klein 4B", "type": "generator", "icon": "lightning-charge"},
             {"id": "qp-render-sd35turbo", "label": "SD3.5 Turbo (Lightning)", "type": "generator", "icon": "lightning-charge"},
+            {"id": "qp-sprite", "label": "Sprite Animator", "type": "generator", "icon": "film"},
 
             {"id": "qp-music-gen", "label": "Music Generator (Medium)", "type": "generator", "icon": "music-note-beamed"},
             {"id": "qp-img2img", "label": "Img2Img Refiner", "type": "generator", "icon": "magic"},
@@ -89,7 +91,9 @@ class QpytUI:
             "qp-settings": 10,
             "qp-render-sdxl": 100,
             "qp-render-flux": 101,
-            "qp-render-sd35turbo": 102,
+            "qp-render-flux-klein": 102,
+            "qp-render-sd35turbo": 103,
+            "qp-sprite": 103,
 
             "qp-music-gen": 102,
             "qp-img2img": 103,

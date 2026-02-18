@@ -278,6 +278,13 @@ class QpSettings extends HTMLElement {
         this.formats = [];
         this.selectedDimension = "1024*1024";
         this.selectedOutputFormat = "webp";
+
+        // State persistence
+        this.guidanceScale = 7.0;
+        this.inferenceSteps = 30;
+        this.batchCount = 1;
+        this.seed = null;
+
         this.hasRendered = false;
     }
     connectedCallback() {
@@ -312,26 +319,20 @@ class QpSettings extends HTMLElement {
     attributeChangedCallback() { this.render(); }
 
     setValues(values) {
+        if (!values) return;
         if (values.width && values.height) {
             this.selectedDimension = `${values.width}*${values.height}`;
         }
         this.selectedOutputFormat = values.output_format || this.selectedOutputFormat;
 
+        if (values.guidance_scale !== undefined) this.guidanceScale = Number(values.guidance_scale);
+        if (values.num_inference_steps !== undefined) this.inferenceSteps = parseInt(values.num_inference_steps);
+        if (values.batch_count !== undefined) this.batchCount = parseInt(values.batch_count);
+        if (values.seed !== undefined && values.seed !== "") this.seed = parseInt(values.seed);
+        else if (values.seed === "" || values.seed === null) this.seed = null;
+
         this.hasRendered = false;
         this.render();
-
-        // Update other inputs after render
-        setTimeout(() => {
-            const gs = this.shadowRoot.getElementById('gs-input');
-            const steps = this.shadowRoot.getElementById('steps-input');
-            const batch = this.shadowRoot.getElementById('batch-input');
-            const seed = this.shadowRoot.getElementById('seed-input');
-
-            if (gs && values.guidance_scale) gs.value = values.guidance_scale;
-            if (steps && values.num_inference_steps) steps.value = values.num_inference_steps;
-            if (batch && values.batch_count) batch.value = values.batch_count;
-            if (seed && values.seed) seed.value = values.seed;
-        }, 50);
     }
 
     render() {
@@ -347,10 +348,10 @@ class QpSettings extends HTMLElement {
                         ${!this.formats.some(f => f.dimensions === this.selectedDimension) ? `<sl-option value="${this.selectedDimension}">Custom: ${this.selectedDimension}</sl-option>` : ''}
                     </sl-select>
 
-                    <sl-input id="gs-input" type="number" step="0.1" label="Guidance Scale" value="7.0"></sl-input>
-                    <sl-input id="steps-input" type="number" label="Inference Steps" value="30"></sl-input>
-                    <sl-input id="batch-input" type="number" label="Images to Generate" value="1" min="1"></sl-input>
-                    <sl-input id="seed-input" type="number" label="Seed" placeholder="Random (leave empty)"></sl-input>
+                    <sl-input id="gs-input" type="number" step="0.1" label="Guidance Scale" value="${this.guidanceScale}"></sl-input>
+                    <sl-input id="steps-input" type="number" label="Inference Steps" value="${this.inferenceSteps}"></sl-input>
+                    <sl-input id="batch-input" type="number" label="Images to Generate" value="${this.batchCount}" min="1"></sl-input>
+                    <sl-input id="seed-input" type="number" label="Seed" placeholder="Random (leave empty)" value="${this.seed !== null ? this.seed : ''}"></sl-input>
 
                     <sl-select id="output-format-select" label="Output File Format" value="${this.selectedOutputFormat}" hoist>
                         <sl-option value="png">PNG (Lossless / Large)</sl-option>
@@ -363,32 +364,30 @@ class QpSettings extends HTMLElement {
 
         this.shadowRoot.getElementById('format-select').addEventListener('sl-change', (e) => this.handleFormatChange(e));
         this.shadowRoot.getElementById('output-format-select').addEventListener('sl-change', (e) => this.handleOutputFormatChange(e));
+
+        // Bind inputs to class state
+        this.shadowRoot.getElementById('gs-input').addEventListener('sl-input', (e) => this.guidanceScale = Number(e.target.value));
+        this.shadowRoot.getElementById('steps-input').addEventListener('sl-input', (e) => this.inferenceSteps = parseInt(e.target.value));
+        this.shadowRoot.getElementById('batch-input').addEventListener('sl-input', (e) => this.batchCount = parseInt(e.target.value));
+        this.shadowRoot.getElementById('seed-input').addEventListener('sl-input', (e) => {
+            const v = e.target.value;
+            this.seed = (v === "" || v === null) ? null : parseInt(v);
+        });
     }
     get values() {
+        // Source of truth is now the class state (which is kept in sync with inputs via listeners)
+        // But to be safe, we can read from inputs if they exist, or fallback to state.
+        // Actually, let's trust our state + handle dynamic dimension/format which are also state.
         const [w, h] = this.selectedDimension.split('*').map(Number);
         return {
             width: w || 1024,
             height: h || 1024,
-            guidance_scale: parseFloat(this.shadowRoot.querySelector('#gs-input').value),
-            num_inference_steps: parseInt(this.shadowRoot.querySelector('#steps-input').value),
-            batch_count: parseInt(this.shadowRoot.querySelector('#batch-input').value) || 1,
-            seed: this.shadowRoot.querySelector('#seed-input').value ? parseInt(this.shadowRoot.querySelector('#seed-input').value) : null,
+            guidance_scale: this.guidanceScale,
+            num_inference_steps: this.inferenceSteps,
+            batch_count: this.batchCount,
+            seed: this.seed,
             output_format: this.selectedOutputFormat
         };
-    }
-    setValues(values) {
-        if (!values) return;
-        if (values.width && values.height) this.selectedDimension = `${values.width}*${values.height}`;
-        this.selectedOutputFormat = values.output_format || 'png';
-        this.hasRendered = false;
-        this.render();
-        // After render, set values that are in inputs
-        setTimeout(() => {
-            if (values.guidance_scale !== undefined) this.shadowRoot.querySelector('#gs-input').value = values.guidance_scale;
-            if (values.num_inference_steps !== undefined) this.shadowRoot.querySelector('#steps-input').value = values.num_inference_steps;
-            if (values.batch_count !== undefined) this.shadowRoot.querySelector('#batch-input').value = values.batch_count;
-            if (values.seed !== undefined) this.shadowRoot.querySelector('#seed-input').value = values.seed || "";
-        }, 0);
     }
     getValue() { return this.values; }
     getValues() { return this.values; }
@@ -845,17 +844,24 @@ class QpRender extends HTMLElement {
             <qp-cartridge title="${title}" type="generator" brick-id="${brickId}">
                 <div class="render-container">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                        ${this.modelType !== 'qwen' ? `
                         <sl-select id="model-select" label="Checkpoint (.safetensors)" value="${this.selectedModel}" hoist style="width: 100%;">
                             ${this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')}
                             ${this.models.length === 0 ? '<sl-option value="" disabled>No models found</sl-option>' : ''}
                         </sl-select>
+                        ` : `
+                        <div style="font-size: 0.9rem; color: #94a3b8; background: rgba(255,255,255,0.05); padding: 0.8rem; border-radius: 0.5rem; border: 1px solid rgba(255,255,255,0.1);">
+                            <sl-icon name="info-circle" style="vertical-align: middle; margin-right: 0.5rem; color: #60a5fa;"></sl-icon>
+                            Using <b>Qwen-Image-2512</b> (Auto-managed)
+                        </div>
+                        `}
 
                         ${this.modelType === 'flux' ? `
                             <sl-checkbox id="low-vram-check" ${this.useLowVram ? 'checked' : ''} style="margin-top: 0.5rem;">Low VRAM / FP8 Mode</sl-checkbox>
                             <div style="font-size: 0.8rem; color: #94a3b8; margin-left: 1.7rem;">Use NF4 (HF) or FP8 (Local) quantization to save VRAM.</div>
                         ` : ''}
 
-                        ${this.modelType !== 'flux' ? `
+                        ${(this.modelType !== 'flux' && this.modelType !== 'qwen') ? `
                         <sl-select label="Sampler" value="${this.selectedSampler}" id="sampler-select" size="small" hoist>
                             ${this.samplers.map(s => `<sl-option value="${s.replace(/ /g, '_')}">${s}</sl-option>`).join('')}
                         </sl-select>
@@ -1014,6 +1020,30 @@ class QpRenderFlux extends QpRender { constructor() { super('flux'); } }
 
 customElements.define('qp-render-sdxl', QpRenderSdxl);
 customElements.define('qp-render-flux', QpRenderFlux);
+
+class QpRenderFluxKlein extends QpRender {
+    constructor() {
+        super('flux');
+        this.defaultSteps = 4;
+        this.defaultGuidance = 1.0;
+    }
+
+    connectedCallback() {
+        this.title = "FLUX.2 Klein 4B";
+        this.icon = "lightning-charge";
+        super.connectedCallback();
+    }
+
+    render() {
+        super.render();
+        const cartridge = this.shadowRoot.querySelector('qp-cartridge');
+        if (cartridge) {
+            cartridge.setAttribute('title', this.title);
+            cartridge.setAttribute('icon', this.icon);
+        }
+    }
+}
+customElements.define('qp-render-flux-klein', QpRenderFluxKlein);
 
 class QpRenderSd35Turbo extends QpRender {
     constructor() {
@@ -3253,3 +3283,5 @@ customElements.define('qp-controlnet', QpControlNet);
 // Specific Generators (Manual mapping for Z-Image)
 class QpRenderZImage extends QpRender { constructor() { super('zimage'); } }
 customElements.define('qp-render-zimage', QpRenderZImage);
+
+
