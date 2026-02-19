@@ -1472,8 +1472,13 @@ class ModelManager:
                 # Re-apply optimization
                 # If IP-Adapter is active, we almost ALWAYS want offload on 12GB cards
                 # because the BigG image encoder takes 3.7GB VRAM by itself.
-                if low_vram or vram_gb < 16: 
-                    print(f"[IP-Adapter] Low VRAM (or IP-Adapter on {vram_gb:.1f}GB device): Enabling CPU Offload to prevent slowness.")
+                # Re-calculate vram close to usage to be 100% safe
+                vram_gb_local = 0
+                if torch.cuda.is_available():
+                    vram_gb_local = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+
+                if low_vram or vram_gb_local < 16: 
+                    print(f"[IP-Adapter] Low VRAM (or IP-Adapter on {vram_gb_local:.1f}GB device): Enabling CPU Offload to prevent slowness.")
                     active_pipe.enable_model_cpu_offload()
                 else:
                     active_pipe.to(config.DEVICE)
@@ -1481,6 +1486,16 @@ class ModelManager:
                 if hasattr(active_pipe, "set_ip_adapter_scale"):
                     active_pipe.set_ip_adapter_scale(0.0)
         else:
+            # No IP-Adapter images provided - UNLOAD if still persistent in memory
+            if cls._current_has_ip_adapter and hasattr(active_pipe, "unload_ip_adapter"):
+                print("[IP-Adapter] Unloading persistent adapter for Txt2Img purity...")
+                try:
+                    active_pipe.unload_ip_adapter()
+                except Exception as e:
+                    print(f"[IP-Adapter] Unload warning: {e}")
+                cls._current_has_ip_adapter = False
+                cls._current_ip_adapter_name = None
+
             if hasattr(active_pipe, "set_ip_adapter_scale"):
                 active_pipe.set_ip_adapter_scale(0.0)
 
