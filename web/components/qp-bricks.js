@@ -599,6 +599,9 @@ class QpRender extends HTMLElement {
         // Img2Img specific - Only send image if this is a dedicated Img2Img brick
         const imageSource = document.querySelector('qp-image-input');
         const isImg2ImgBrick = this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT';
+        const blenderSource = document.querySelector('qp-image-blender');
+        const blenderData = blenderSource ? blenderSource.getValue() : null;
+
         const image = isImg2ImgBrick ? (imageSource?.getImage() || null) : null;
 
         if (isImg2ImgBrick && !image) {
@@ -636,8 +639,14 @@ class QpRender extends HTMLElement {
                 model_name: this.selectedModel,
                 sampler_name: this.selectedSampler,
                 vae_name: this.selectedVae || null,
+                denominator: genSettings.denominator,
                 image: image,
                 mask: mask,
+                image_a: blenderData ? blenderData.image_a : null,
+                image_b: blenderData ? blenderData.image_b : null,
+                weight_a: blenderData ? blenderData.weight_a : 0.5,
+                weight_b: blenderData ? blenderData.weight_b : 0.5,
+                ip_adapter_scale: blenderData ? blenderData.fidelity : 0.5,
                 denoising_strength: (image || mask) ? this.denoisingStrength : undefined,
                 ...genSettings,
                 seed: genSettings.seed ? genSettings.seed + index : null,
@@ -2721,7 +2730,9 @@ class QpTranslator extends HTMLElement {
         if (!input) return;
 
         this.isLoading = true;
-        this.render();
+        const btn = this.shadowRoot.getElementById('btn-translate');
+        if (btn) btn.loading = true;
+        this.updateResultArea();
 
         try {
             const response = await fetch('/translate', {
@@ -2739,7 +2750,9 @@ class QpTranslator extends HTMLElement {
             this.result = "Translation failed.";
         } finally {
             this.isLoading = false;
-            this.render();
+            const btnFinal = this.shadowRoot.getElementById('btn-translate');
+            if (btnFinal) btnFinal.loading = false;
+            this.updateResultArea();
         }
     }
 

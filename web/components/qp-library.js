@@ -53,7 +53,7 @@ class QpLibrary extends HTMLElement {
             inputs: {
                 label: "Inputs & Prompts",
                 icon: "chat-left-text",
-                ids: ["qp-image-input", "qp-prompt", "qp-styles", "qp-translator", "qp-llm-prompter", "qp-img2prompt", "qp-civitai"]
+                ids: ["qp-image-input", "qp-prompt", "qp-styles", "qp-translator", "qp-llm-prompter", "qp-img2prompt", "qp-civitai", "qp-image-blender"]
             },
             generators: {
                 label: "Generators (AI)",

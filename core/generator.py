@@ -35,7 +35,7 @@ from diffusers import (
     StableDiffusionXLControlNetPipeline,
     ControlNetModel,
     ZImagePipeline)
-from transformers import CLIPTextModel, T5EncoderModel, T5TokenizerFast
+from transformers import CLIPTextModel, T5EncoderModel, T5TokenizerFast, CLIPImageProcessor, CLIPVisionModelWithProjection as TransformersCLIPVision
 try:
     from transformers import Mistral3ForConditionalGeneration, AutoModel
 except ImportError:
@@ -82,6 +82,82 @@ class ModelManager:
     _weights_t = None
     _biases_t = None
     _active_lora_names = [] # Names of currently loaded LoRA adapters
+    _current_has_ip_adapter = False
+    _current_ip_adapter_name = None
+    _image_encoder = None
+
+    @classmethod
+    def _apply_ip_adapter(cls, pipe, model_type: str, weight_name: str = "ip-adapter_sdxl.safetensors", required_layers: int = 1):
+        if model_type != 'sdxl' or pipe is None: return pipe
+        
+        # Check current loaded adapters
+        unet = getattr(pipe, "unet", None)
+        if unet is None: return pipe
+
+        # Count existing projection layers
+        current_layers = 0
+        if hasattr(unet, "encoder_hid_proj") and unet.encoder_hid_proj is not None:
+            if hasattr(unet.encoder_hid_proj, "image_projection_layers"):
+                current_layers = len(unet.encoder_hid_proj.image_projection_layers)
+            else:
+                # If it exists but isn't a list, it's likely a single layer (old/internal diffusers state)
+                current_layers = 1
+        
+        if current_layers >= required_layers and cls._current_ip_adapter_name == weight_name:
+            return pipe
+            
+        print(f"[IP-Adapter] Loading {weight_name} (Required: {required_layers}, Current: {current_layers})...")
+        try:
+            # CRITICAL: Always remove hooks before structural changes
+            cls.remove_all_hooks(pipe)
+            
+            if cls._image_encoder is None:
+                # Using h94 repo which is more reliable for IP-Adapter components
+                cls._image_encoder = TransformersCLIPVision.from_pretrained(
+                    "h94/IP-Adapter", 
+                    subfolder="sdxl_models/image_encoder",
+                    torch_dtype=torch.float16
+                ).to(config.DEVICE)
+            
+            adapter_path = Path("G:/models/ip_adapter") / weight_name
+            if not adapter_path.exists(): 
+                print(f"[IP-Adapter] Error: {adapter_path} not found.")
+                return pipe
+            
+            # Use manual loading to bypass directory scanning issues for local files
+            from safetensors.torch import load_file
+            raw_state_dict = load_file(str(adapter_path))
+            
+            # Partition weights
+            state_dict = {"image_proj": {}, "ip_adapter": {}}
+            for k, v in raw_state_dict.items():
+                if k.startswith("image_proj."):
+                    state_dict["image_proj"][k.replace("image_proj.", "")] = v
+                elif k.startswith("ip_adapter."):
+                    state_dict["ip_adapter"][k.replace("ip_adapter.", "")] = v
+            
+            if not state_dict["image_proj"]: state_dict = raw_state_dict
+
+            # Attach image encoder
+            if cls._image_encoder is not None:
+                pipe.image_encoder = cls._image_encoder
+
+            # Load until we reach required count
+            while current_layers < required_layers:
+                print(f"[IP-Adapter] Adding layer {current_layers + 1}...")
+                pipe.load_ip_adapter(state_dict, subfolder="", weight_name="")
+                current_layers += 1
+            
+            cls._current_has_ip_adapter = True
+            cls._current_ip_adapter_name = weight_name
+            print(f"[IP-Adapter] Loaded successfully ({current_layers} layers).")
+        except Exception as e: 
+            import traceback
+            print(f"[IP-Adapter] Load failed: {e}")
+            print(traceback.format_exc())
+            cls._current_has_ip_adapter = False
+            cls._current_ip_adapter_name = None
+        return pipe
 
     @classmethod
     def latents_to_rgb(cls, latents):
@@ -161,6 +237,8 @@ class ModelManager:
             cls._current_model_type = None
             cls._current_has_controlnet = False
             cls._current_controlnet_name = None
+            cls._current_has_ip_adapter = False
+            cls._current_ip_adapter_name = None
             
             # GC first, then clear cache
             gc.collect()
@@ -1017,7 +1095,9 @@ class ModelManager:
                  loras: Optional[list] = None,
                  controlnet_image: str = None, controlnet_conditioning_scale: float = 0.7,
                  controlnet_model: str = None, low_vram: bool = False, is_inpaint: bool = False,
-                 workflow: Optional[Dict[str, Any]] = None):
+                 workflow: Optional[Dict[str, Any]] = None,
+                 image_a: str = None, image_b: str = None, weight_a: float = 0.5,
+                 weight_b: float = 0.5, ip_adapter_scale: float = 0.5):
         """
         Génère une image (ou transforme une existante) à partir des paramètres.
         """
@@ -1031,6 +1111,11 @@ class ModelManager:
             
         import time
         start_time = time.time()
+        
+        # Calculate VRAM for optimization decisions
+        vram_gb = 0
+        if torch.cuda.is_available():
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
         
         # Map 'img2img' alias to base architecture (Default: SDXL)
         if model_type == 'img2img':
@@ -1322,6 +1407,82 @@ class ModelManager:
             
             if is_now_img2img:
                 print("Warning: Both Img2Img Image and ControlNet Image provided. Ignoring Img2Img Image in favor of ControlNet Txt2Img.")
+
+        # --- IP-Adapter / Image Blender Support ---
+        if (image_a or image_b) and model_type == 'sdxl':
+            # Determine required layers based on images provided
+            needed_layers = 1
+            if image_a and image_b: needed_layers = 2
+            
+            active_pipe = cls._apply_ip_adapter(active_pipe, model_type, required_layers=needed_layers)
+            cls._pipeline = active_pipe # Keep class cache in sync
+            
+            ip_images = []
+            ip_scales = []
+            
+            def decode_ip(b64):
+                if not b64: return None
+                try:
+                    if "," in b64: b64 = b64.split(",")[1]
+                    import base64
+                    from io import BytesIO
+                    return Image.open(BytesIO(base64.b64decode(b64))).convert("RGB")
+                except Exception as e:
+                    print(f"[IP-Adapter] Decode error: {e}")
+                    return None
+
+            img_a_obj = decode_ip(image_a)
+            img_b_obj = decode_ip(image_b)
+            
+            if img_a_obj and img_b_obj:
+                ip_images = [img_a_obj, img_b_obj]
+                ip_scales = [weight_a * ip_adapter_scale, weight_b * ip_adapter_scale]
+            elif img_a_obj:
+                ip_images = [img_a_obj]
+                ip_scales = [weight_a * ip_adapter_scale]
+            elif img_b_obj:
+                ip_images = [img_b_obj]
+                ip_scales = [weight_b * ip_adapter_scale]
+
+            # FINAL SYNC: Match scales and images to the actual number of adapters loaded
+            if ip_images and hasattr(active_pipe.unet, "encoder_hid_proj") and \
+               hasattr(active_pipe.unet.encoder_hid_proj, "image_projection_layers"):
+                num_adapters = len(active_pipe.unet.encoder_hid_proj.image_projection_layers)
+                while len(ip_images) < num_adapters:
+                    # Pad with existing image but 0 weight to satisfy Diffusers constraints
+                    ip_images.append(ip_images[0])
+                    ip_scales.append(0.0)
+                # Trim if somehow we have more images than adapters (shouldn't happen)
+                ip_images = ip_images[:num_adapters]
+                ip_scales = ip_scales[:num_adapters]
+                
+            if ip_images:
+                # FINAL SAFETY CHECK: Does the pipeline REALLY have the projection layers?
+                can_run_ip = hasattr(active_pipe.unet, "encoder_hid_proj") and active_pipe.unet.encoder_hid_proj is not None
+                
+                if can_run_ip:
+                    print(f"[IP-Adapter] Applying blending: {len(ip_images)} concepts, scales: {ip_scales}")
+                    active_pipe.set_ip_adapter_scale(ip_scales)
+                    kwargs["ip_adapter_image"] = ip_images 
+                else:
+                    print("[IP-Adapter] CRITICAL: Projection layers missing despite load attempt. Skipping IP-Adapter to avoid crash.")
+                    if hasattr(active_pipe, "set_ip_adapter_scale"):
+                        active_pipe.set_ip_adapter_scale(0.0)
+                
+                # Re-apply optimization
+                # If IP-Adapter is active, we almost ALWAYS want offload on 12GB cards
+                # because the BigG image encoder takes 3.7GB VRAM by itself.
+                if low_vram or vram_gb < 16: 
+                    print(f"[IP-Adapter] Low VRAM (or IP-Adapter on {vram_gb:.1f}GB device): Enabling CPU Offload to prevent slowness.")
+                    active_pipe.enable_model_cpu_offload()
+                else:
+                    active_pipe.to(config.DEVICE)
+            else:
+                if hasattr(active_pipe, "set_ip_adapter_scale"):
+                    active_pipe.set_ip_adapter_scale(0.0)
+        else:
+            if hasattr(active_pipe, "set_ip_adapter_scale"):
+                active_pipe.set_ip_adapter_scale(0.0)
 
         if model_type == 'sdxl' and compel:
             conditioning, pooled = compel(prompt)

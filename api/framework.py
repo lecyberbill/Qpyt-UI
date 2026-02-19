@@ -23,6 +23,7 @@ class QpytUI:
             {"id": "qp-render-sd35turbo", "label": "SD3.5 Turbo (Lightning)", "type": "generator", "icon": "lightning-charge"},
             {"id": "qp-sprite", "label": "Sprite Animator", "type": "generator", "icon": "film"},
             {"id": "qp-civitai", "label": "Civitai Explorer", "type": "input", "icon": "search"},
+            {"id": "qp-image-blender", "label": "Image Blender (IP)", "type": "input", "icon": "intersect"},
 
             {"id": "qp-music-gen", "label": "Music Generator (Medium)", "type": "generator", "icon": "music-note-beamed"},
             {"id": "qp-img2img", "label": "Img2Img Refiner", "type": "generator", "icon": "magic"},
@@ -89,6 +90,7 @@ class QpytUI:
             "qp-img2prompt": 2,
             "qp-prompt": 2,
             "qp-civitai": 2,
+            "qp-image-blender": 2,
             "qp-canvas": 2,
             "qp-translator": 3,
             "qp-settings": 10,
