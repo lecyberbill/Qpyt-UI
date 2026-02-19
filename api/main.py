@@ -51,12 +51,32 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 app = FastAPI(title="Qpyt-UI API")
 
+import webbrowser
+
+_browser_opened = False
+
 @app.on_event("startup")
 async def startup_event():
     queue_mgr = QueueManager.get_instance()
     await queue_mgr.start_worker()
     # Start file watcher for hot reload
     asyncio.create_task(hot_reload_watcher())
+    
+    # Auto-open browser
+    global _browser_opened
+    if not _browser_opened:
+        port = 8000 # Default port
+        # In a real scenario we'd parse sys.argv or config, but 8000 is the project standard
+        url = f"http://127.0.0.1:{port}/"
+        logger.info(f"Opening browser at {url}")
+        
+        # Give uvicorn a moment to start the socket
+        async def open_delayed():
+            await asyncio.sleep(1.5)
+            webbrowser.open(url)
+            
+        asyncio.create_task(open_delayed())
+        _browser_opened = True
 
 # Hot Reload logic
 connected_clients = set()
@@ -170,6 +190,39 @@ async def load_workflow(request: Request):
         return {"status": "success", "workflow": app_ui.workflow}
     except Exception as e:
         logger.error(f"Error loading workflow: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/workflows/extract")
+async def extract_workflow(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        img = Image.open(io.BytesIO(contents))
+        
+        workflow_data = None
+        ext = Path(file.filename).suffix.lower()
+        
+        # 1. Try PNG tEXt chunk
+        if ext == '.png':
+            workflow_data = img.info.get("qpyt_workflow")
+            
+        # 2. Try EXIF (JPEG/WebP) - UserComment (0x9286)
+        if not workflow_data:
+            exif = img.getexif()
+            if exif:
+                workflow_data = exif.get(0x9286)
+        
+        if not workflow_data:
+            return JSONResponse(status_code=404, content={"status": "error", "message": "No workflow metadata found in this image."})
+            
+        try:
+            import json
+            data = json.loads(workflow_data)
+            return {"status": "success", "workflow": data}
+        except Exception as e:
+            return JSONResponse(status_code=422, content={"status": "error", "message": f"Malformed workflow data: {str(e)}"})
+            
+    except Exception as e:
+        logger.error(f"Error extracting workflow: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.post("/workflows/delete")
@@ -361,38 +414,45 @@ async def task_upscale_wrapper(**kwargs):
 
 @app.post("/generate")
 async def generate(request: ImageGenerationRequest):
-    logger.info(f"Adding generation to queue ({request.model_type}): {request.prompt}")
-    queue_mgr = QueueManager.get_instance()
-    
-    # We pass the wrapper function and its arguments
-    task_id = await queue_mgr.add_task(
-        "generate",
-        task_generate_wrapper,
-        prompt=request.prompt,
-        negative_prompt=request.negative_prompt,
-        model_type=request.model_type,
-        model_name=request.model_name,
-        width=request.width,
-        height=request.height,
-        guidance_scale=request.guidance_scale,
-        num_inference_steps=request.num_inference_steps,
-        seed=request.seed,
-        vae_name=request.vae_name,
-        sampler_name=request.sampler_name,
-        image=request.image,
-        denoising_strength=request.denoising_strength,
-        output_format=request.output_format,
-        loras=request.loras,
-        controlnet_image=request.controlnet_image,
-        controlnet_conditioning_scale=request.controlnet_conditioning_scale,
-        controlnet_model=request.controlnet_model,
-        low_vram=request.low_vram
-    )
-    
-    return {
-        "status": "queued",
-        "task_id": task_id
-    }
+    try:
+        logger.info(f"Adding generation to queue ({request.model_type}): {request.prompt}")
+        queue_mgr = QueueManager.get_instance()
+        
+        # We pass the wrapper function and its arguments
+        task_id = await queue_mgr.add_task(
+            "generate",
+            task_generate_wrapper,
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            model_type=request.model_type,
+            model_name=request.model_name,
+            width=request.width,
+            height=request.height,
+            guidance_scale=request.guidance_scale,
+            num_inference_steps=request.num_inference_steps,
+            seed=request.seed,
+            vae_name=request.vae_name,
+            sampler_name=request.sampler_name,
+            image=request.image,
+            denoising_strength=request.denoising_strength,
+            output_format=request.output_format,
+            loras=request.loras,
+            controlnet_image=request.controlnet_image,
+            controlnet_conditioning_scale=request.controlnet_conditioning_scale,
+            controlnet_model=request.controlnet_model,
+            low_vram=request.low_vram,
+            workflow=request.workflow
+        )
+        
+        return {
+            "status": "queued",
+            "task_id": task_id
+        }
+    except Exception as e:
+        logger.error(f"Error submitting /generate task: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.post("/inpaint")
 async def inpaint(request: InpaintRequest):
@@ -418,7 +478,8 @@ async def inpaint(request: InpaintRequest):
         denoising_strength=request.denoising_strength,
         output_format=request.output_format,
         loras=request.loras,
-        is_inpaint=True
+        is_inpaint=True,
+        workflow=request.workflow
     )
     
     return {"status": "queued", "task_id": task_id}
@@ -442,7 +503,8 @@ async def outpaint(request: OutpaintRequest):
         image=request.image,
         mask=request.mask,
         denoising_strength=request.denoising_strength,
-        is_inpaint=True
+        is_inpaint=True,
+        workflow=request.workflow
     )
     
     return {"status": "queued", "task_id": task_id}

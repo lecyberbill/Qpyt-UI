@@ -19,6 +19,7 @@ class QpSprite extends HTMLElement {
         this.selectedModel = "";
         this.models = [];
 
+        this.endpoint = "/generate/sprite";
         this.hasRendered = false;
     }
 
@@ -49,6 +50,42 @@ class QpSprite extends HTMLElement {
 
     attributeChangedCallback() {
         this.render();
+    }
+
+    async submitAndPollTask(endpoint, payload) {
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (data.status === 'queued') {
+                const taskId = data.task_id;
+                while (true) {
+                    if (!this.isGenerating) return null;
+                    const res = await fetch(`/queue/status/${taskId}`);
+                    const task = await res.json();
+
+                    if (task.status === 'COMPLETED') {
+                        // Ensure request_id is present for history/dashboard
+                        if (task.result && typeof task.result === 'object') {
+                            task.result.request_id = taskId;
+                        }
+                        return task.result;
+                    } else if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+                        throw new Error(task.message || "Sprite generation task failed");
+                    }
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            } else {
+                throw new Error(data.message || "Error starting generation");
+            }
+        } catch (e) {
+            console.error("[Sprite Polling Error]", e);
+            throw e;
+        }
     }
 
     async generate() {
@@ -108,90 +145,53 @@ class QpSprite extends HTMLElement {
                 }
             }
 
-            const response = await fetch('/generate/sprite', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+            const result = await this.submitAndPollTask('/generate/sprite', payload);
+            if (!result) return; // Cancelled
 
-            const data = await response.json();
+            this.resultUrl = result.image_url;
+            window.qpyt_app?.notify("Sprite generated!", "success");
 
-            if (data.status === 'queued') {
-                window.qpyt_app?.notify("Sprite generation queued...", "primary");
-                this.monitorTask(data.task_id);
-            } else {
-                window.qpyt_app?.notify("Error starting generation", "danger");
-                this.isGenerating = false;
-                this.render();
+            // Signal global output for Final Output brick
+            window.dispatchEvent(new CustomEvent('qpyt-output', {
+                detail: {
+                    url: this.resultUrl,
+                    brickId: this.getAttribute('brick-id'),
+                    params: {
+                        seed: result.metadata?.seed,
+                        prompt: this.prompt,
+                        model: "AnimateDiff"
+                    }
+                },
+                bubbles: true,
+                composed: true
+            }));
+
+            // Update Dashboard/History
+            const dashboard = document.querySelector('qp-dashboard');
+            if (dashboard) {
+                dashboard.addEntry({
+                    id: result.request_id,
+                    image_url: this.resultUrl,
+                    status: 'success',
+                    metadata: {
+                        prompt: this.prompt,
+                        seed: result.metadata?.seed,
+                        width: 256,
+                        height: 256,
+                        model_name: "AnimateDiff",
+                        num_inference_steps: this.steps,
+                        guidance_scale: this.guidance
+                    },
+                    execution_time: result.execution_time || 0
+                });
             }
         } catch (e) {
             console.error(e);
-            window.qpyt_app?.notify("Generation failed", "danger");
+            window.qpyt_app?.notify(`Generation failed: ${e.message}`, "danger");
+        } finally {
             this.isGenerating = false;
             this.render();
         }
-    }
-
-    async monitorTask(taskId) {
-        const checkStatus = async () => {
-            try {
-                const res = await fetch(`/queue/status/${taskId}`);
-                const task = await res.json();
-
-                if (task.status === 'COMPLETED') {
-                    this.resultUrl = task.result.image_url;
-                    this.isGenerating = false;
-                    window.qpyt_app?.notify("Sprite generated!", "success");
-
-                    // Signal global output for Final Output brick
-                    window.dispatchEvent(new CustomEvent('qpyt-output', {
-                        detail: {
-                            url: this.resultUrl,
-                            brickId: this.getAttribute('brick-id'),
-                            params: {
-                                seed: task.result.metadata?.seed, // Corrected path
-                                prompt: this.prompt,
-                                model: "AnimateDiff"
-                            }
-                        },
-                        bubbles: true,
-                        composed: true
-                    }));
-
-                    // Update Dashboard/History
-                    const dashboard = document.querySelector('qp-dashboard');
-                    if (dashboard) {
-                        dashboard.addEntry({
-                            id: taskId,
-                            image_url: this.resultUrl,
-                            status: 'success',
-                            metadata: {
-                                prompt: this.prompt,
-                                seed: task.result.metadata?.seed, // Corrected path
-                                width: 256,
-                                height: 256,
-                                model_name: "AnimateDiff",
-                                num_inference_steps: this.steps,
-                                guidance_scale: this.guidance
-                            },
-                            execution_time: task.result.execution_time || 0
-                        });
-                    }
-
-                    this.render();
-                } else if (task.status === 'FAILED') {
-                    this.isGenerating = false;
-                    window.qpyt_app?.notify(`Generation failed: ${task.message}`, "danger");
-                    this.render();
-                } else {
-                    setTimeout(checkStatus, 1000);
-                }
-            } catch (e) {
-                this.isGenerating = false;
-                this.render();
-            }
-        };
-        checkStatus();
     }
 
     render() {

@@ -7,10 +7,50 @@ class QpMusicGen extends HTMLElement {
         this.lastAudioUrl = "";
         this.duration = 10;
         this.guidance = 3.0;
+        this.endpoint = "/generate/audio";
     }
 
     connectedCallback() {
         this.render();
+    }
+
+    async submitAndPollTask(endpoint, payload) {
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const submission = await response.json();
+            if (submission.status === 'queued') {
+                const taskId = submission.task_id;
+                while (true) {
+                    if (!this.isGenerating) return null;
+                    const statusResp = await fetch(`/queue/status/${taskId}`);
+                    const task = await statusResp.json();
+
+                    if (task.status === 'COMPLETED') {
+                        const data = task.result;
+                        // Ensure consistency
+                        if (data && typeof data === 'object') {
+                            data.request_id = taskId;
+                        }
+                        return data;
+                    }
+                    if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+                        throw new Error(task.error || "MusicGen task failed");
+                    }
+                    // Slower polling for music
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            } else {
+                throw new Error(submission.message || "Failed to queue task");
+            }
+        } catch (e) {
+            console.error("[MusicGen Polling Error]", e);
+            throw e;
+        }
     }
 
     async generate() {
@@ -35,46 +75,23 @@ class QpMusicGen extends HTMLElement {
         this.render();
 
         try {
-            const response = await fetch('/generate/audio', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt: prompt,
-                    duration: this.duration,
-                    guidance_scale: this.guidance
-                })
+            const data = await this.submitAndPollTask('/generate/audio', {
+                prompt: prompt,
+                duration: this.duration,
+                guidance_scale: this.guidance
             });
 
-            const submission = await response.json();
-            if (submission.status === 'queued') {
-                const taskId = submission.task_id;
-                while (true) {
-                    if (!this.isGenerating) break;
-                    const statusResp = await fetch(`/queue/status/${taskId}`);
-                    const task = await statusResp.json();
+            if (data) {
+                this.lastAudioUrl = data.image_url;
 
-                    if (task.status === 'COMPLETED') {
-                        const data = task.result;
-                        this.lastAudioUrl = data.image_url;
-
-                        const dashboard = document.querySelector('qp-dashboard');
-                        if (dashboard) dashboard.addEntry({
-                            ...data,
-                            image_url: null,
-                            type: 'audio',
-                            preview: this.lastAudioUrl
-                        });
-                        window.qpyt_app.notify("Music generated!", "success");
-                        break;
-                    }
-                    if (task.status === 'FAILED' || task.status === 'CANCELLED') {
-                        throw new Error(task.error || "MusicGen task failed");
-                    }
-                    // Slower polling for music
-                    await new Promise(r => setTimeout(r, 2000));
-                }
-            } else {
-                throw new Error(submission.message || "Failed to queue task");
+                const dashboard = document.querySelector('qp-dashboard');
+                if (dashboard) dashboard.addEntry({
+                    ...data,
+                    image_url: null,
+                    type: 'audio',
+                    preview: this.lastAudioUrl
+                });
+                window.qpyt_app.notify("Music generated!", "success");
             }
         }
         catch (e) {

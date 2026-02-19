@@ -68,7 +68,7 @@ class QpLibrary extends HTMLElement {
             utilities: {
                 label: "Utilities & FX",
                 icon: "layers",
-                ids: ["q-upscaler-v3", "qp-rembg", "qp-depth-estimator", "qp-normal-map", "qp-openpose-editor", "qp-vectorize", "qp-filter", "qp-canvas"]
+                ids: ["q-upscaler-v3", "qp-rembg", "qp-depth-estimator", "qp-normal-map", "qp-openpose-editor", "qp-vectorize", "qp-filter", "qp-canvas", "qp-batch-runner"]
             },
             system: {
                 label: "Export & Settings",

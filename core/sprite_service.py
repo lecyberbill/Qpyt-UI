@@ -1,6 +1,6 @@
 import torch
 import gc
-from diffusers import AnimateDiffPipeline, MotionAdapter, EulerDiscreteScheduler
+from diffusers import AnimateDiffPipeline, MotionAdapter, EulerAncestralDiscreteScheduler
 from diffusers.utils import export_to_gif
 from datetime import datetime
 import os
@@ -71,11 +71,12 @@ class SpriteService:
             
             self.current_model = target_model
             
-            # Use EulerDiscreteScheduler for speed
-            self._pipeline.scheduler = EulerDiscreteScheduler.from_config(
+            # Use EulerAncestralDiscreteScheduler (excellent for low-step quality)
+            self._pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
                 self._pipeline.scheduler.config, 
-                timestep_spacing="trailing",
-                beta_schedule="linear"
+                beta_schedule="scaled_linear", # Standard for SD1.5
+                timestep_spacing="linspace",
+                steps_offset=1
             )
             
             # Optimization
@@ -135,8 +136,10 @@ class SpriteService:
                     self._pipeline.load_lora_weights(path, adapter_name=name)
                     active_adapters.append(name)
                     
-                    # Set weight
-                    self._pipeline.set_adapters(active_adapters, adapter_weights=[float(l.get('weight', 1.0)) for l in loras if l.get('enabled', True)])
+                # Set weights after loading all adapters
+                weights = [float(l.get('weight', 1.0)) for l in loras if l.get('enabled', True)]
+                if active_adapters:
+                    self._pipeline.set_adapters(active_adapters, adapter_weights=weights)
                     
             except Exception as e:
                  logger.error(f"[SpriteService] Failed to load LoRAs: {e}")

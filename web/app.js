@@ -30,6 +30,7 @@ class QpytApp {
 
             // Setup Drag & Drop
             this.setupDragAndDrop();
+            this.setupImageDrop();
 
             console.log("Qpyt-UI initialized with config:", config);
         } catch (e) {
@@ -248,6 +249,50 @@ class QpytApp {
         });
     }
 
+    setupImageDrop() {
+        // Global drag/drop for images to reconstruct workflow
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        });
+
+        document.addEventListener('drop', async (e) => {
+            // Check if we are dropping a file (not an internal brick reorder)
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                if (file.type.startsWith('image/')) {
+                    this.extractWorkflowFromImage(file);
+                }
+            }
+        });
+    }
+
+    async extractWorkflowFromImage(file) {
+        try {
+            this.notify(`Extracting workflow from ${file.name}...`, "info");
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/workflows/extract', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.notify("Workflow reconstructed successfully!", "success");
+                this.mountWorkflow(result.workflow);
+            } else {
+                this.notify(result.message || "No workflow found in image", "warning");
+            }
+        } catch (e) {
+            console.error("[Metadata Extension]", e);
+            this.notify("Failed to extract metadata", "danger");
+        }
+    }
+
     async addBrick(type) {
         // 1. Capture current values
         const currentStates = this.getCurrentWorkflowState();
@@ -277,6 +322,17 @@ class QpytApp {
                         currentStates.push(newBrick); // Append at bottom
                     }
                     this.mountWorkflow(currentStates);
+
+                    // 3. New: Apply Resonant Defaults if available
+                    // We wait for the next tick to ensure the element is in the DOM and upgraded
+                    setTimeout(() => {
+                        const el = this.workflow.querySelector(`[brick-id="${newBrickId}"]`);
+                        if (el && typeof el.applyDefaultSettings === 'function') {
+                            console.log(`[App] Applying resonant defaults for: ${el.tagName}`);
+                            el.applyDefaultSettings();
+                        }
+                    }, 50);
+
                     this.notify("Module added successfully", "success");
                 } else {
                     console.error("New brick not found in response", result);

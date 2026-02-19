@@ -1,4 +1,5 @@
 import torch
+from typing import Optional, Dict, Any, List
 import uuid
 import os
 import warnings
@@ -41,8 +42,9 @@ except ImportError:
     # Handle potentially different version/naming
     Mistral3ForConditionalGeneration = None
     from transformers import AutoModel
-# Suppress CLIP token limit warnings for Flux (as we rely on T5)
 import logging
+import json
+from PIL.PngImagePlugin import PngInfo
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
 
 from compel import Compel, ReturnedEmbeddingsType
@@ -1014,7 +1016,8 @@ class ModelManager:
                  denoising_strength: float = 0.5, output_format: str = "png", mask: str = None,
                  loras: Optional[list] = None,
                  controlnet_image: str = None, controlnet_conditioning_scale: float = 0.7,
-                 controlnet_model: str = None, low_vram: bool = False):
+                 controlnet_model: str = None, low_vram: bool = False, is_inpaint: bool = False,
+                 workflow: Optional[Dict[str, Any]] = None):
         """
         Génère une image (ou transforme une existante) à partir des paramètres.
         """
@@ -1038,7 +1041,7 @@ class ModelManager:
         # Normalize VAE name
         if vae_name == 'Default' or not vae_name:
             vae_name = None
-
+ 
         # Model selection based on type
         if model_type == 'flux':
             m_name = model_name or config.get('DEFAULT_FLUX_MODEL', 'flux1-schnell.safetensors')
@@ -1094,7 +1097,7 @@ class ModelManager:
         
         # Determine if we are doing Img2Img or Inpaint
         is_now_img2img = bool(image)
-        is_now_inpaint = bool(mask)
+        is_now_inpaint = bool(mask) or is_inpaint
         
         # Prepare Mode Name for logging
         mode_name = "Txt2Img"
@@ -1379,7 +1382,6 @@ class ModelManager:
         actual_w, actual_h = image_out.size
         file_name = f"{base_name}_{day_folder}_{timestamp}_{actual_w}x{actual_h}_seed{seed}.{ext}"
         file_path = final_output_dir / file_name
-        
         save_kwargs = {}
         if save_ext == 'jpeg':
             save_kwargs['quality'] = 90
@@ -1387,6 +1389,24 @@ class ModelManager:
         elif save_ext == 'webp':
             save_kwargs['quality'] = 90
             
+        # Metadata Injection (Workflow)
+        if workflow:
+            print(f"[Metadata] Injecting workflow JSON into {ext} file...")
+            workflow_str = json.dumps(workflow)
+            
+            if save_ext == 'png':
+                metadata = PngInfo()
+                metadata.add_text("qpyt_workflow", workflow_str)
+                save_kwargs['pnginfo'] = metadata
+            
+            elif save_ext in ['jpeg', 'webp']:
+                # For JPEG and WebP, we use the EXIF UserComment tag (0x9286)
+                # Note: EXIF works for both in modern Pillow
+                exif = image_out.getexif()
+                # 0x9286 is the tag for UserComment
+                exif[0x9286] = workflow_str
+                save_kwargs['exif'] = exif
+
         image_out.save(file_path, format=save_ext.upper(), **save_kwargs)
         
         exec_time = time.time() - start_time

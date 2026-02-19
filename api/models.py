@@ -24,6 +24,7 @@ class ImageGenerationRequest(BaseModel):
     controlnet_conditioning_scale: float = Field(0.7, ge=0.0, le=2.0, description="Force de l'influence ControlNet")
     controlnet_model: Optional[str] = Field("diffusers/controlnet-depth-sdxl-1.0", description="Nom du modèle ControlNet sur HF ou chemin local")
     low_vram: bool = Field(False, description="Activer le mode faible VRAM (quantization) pour Flux")
+    workflow: Optional[List[Any]] = Field(None, description="Données du workflow JSON pour injection")
 # --- LE CONTRAT DE SORTIE ---
 class ImageGenerationResponse(BaseModel):
     request_id: uuid.UUID

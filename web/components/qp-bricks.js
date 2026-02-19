@@ -403,6 +403,7 @@ class QpRender extends HTMLElement {
         this.selectedModel = '';
         this.selectedSampler = "dpm++_2m_sde_karras";
         this.selectedVae = '';
+        this.endpoint = '/generate';
         this.denoisingStrength = 0.5;
         this.useLowVram = false; // New property
         this.vaes = [];
@@ -415,6 +416,22 @@ class QpRender extends HTMLElement {
         this.previewInterval = null;
         this.controlnets = [];
         this.hasRendered = false;
+
+        // Default resonant settings
+        this.defaultSteps = 30;
+        this.defaultGuidance = 7.0;
+    }
+
+    applyDefaultSettings() {
+        const settingsEl = document.querySelector('qp-settings') || document.querySelector('mg-settings');
+        if (settingsEl && typeof settingsEl.setValues === 'function') {
+            console.log(`[QpRender] Applying Resonant Defaults: Steps=${this.defaultSteps}, CFG=${this.defaultGuidance}`);
+            settingsEl.setValues({
+                num_inference_steps: this.defaultSteps,
+                guidance_scale: this.defaultGuidance
+            });
+            window.qpyt_app?.notify(`Settings optimized for ${this.title || this.modelType}`, "success");
+        }
     }
 
     connectedCallback() {
@@ -489,6 +506,18 @@ class QpRender extends HTMLElement {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error(`[Queue Error] Server returned ${response.status}: ${text}`);
+                let msg = "Failed to submit task";
+                try {
+                    const errJson = JSON.parse(text);
+                    msg = errJson.message || errJson.detail || msg;
+                    if (Array.isArray(msg)) msg = msg.map(m => m.msg || JSON.stringify(m)).join(", ");
+                } catch (e) { }
+                throw new Error(`${msg} (${response.status})`);
+            }
 
             const submission = await response.json();
             if (submission.status === 'queued') {
@@ -617,7 +646,8 @@ class QpRender extends HTMLElement {
                 controlnet_image: controlNet ? controlNet.getImage() : null,
                 controlnet_conditioning_scale: controlNet ? controlNet.getStrength() : 0.7,
                 controlnet_model: controlNet ? controlNet.getModel() : null,
-                low_vram: this.useLowVram // Pass low_vram setting
+                low_vram: this.useLowVram, // Pass low_vram setting
+                workflow: window.qpyt_app?.getCurrentWorkflowState() || null
             };
 
             try {
@@ -830,6 +860,12 @@ class QpRender extends HTMLElement {
                     --sl-color-primary-600: #10b981;
                     --sl-color-primary-500: #059669;
                 }
+                .reset-btn {
+                    width: 100%;
+                    --sl-color-neutral-600: #475569;
+                    --sl-color-neutral-500: #334155;
+                    margin-top: 0.5rem;
+                }
                 .stop-btn {
                     width: 100%;
                     --sl-color-danger-600: #ef4444;
@@ -941,16 +977,24 @@ class QpRender extends HTMLElement {
                             ` : ''}
                         </div>
                         
-                        <div style="display: flex; gap: 0.5rem; width: 100%;">
-                            <sl-button class="gen-btn" variant="primary" size="large" id="gen-btn" style="flex: 3;">
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                            <sl-button class="gen-btn" variant="primary" size="large" id="gen-btn" style="flex: 1;">
                                 <sl-icon slot="prefix" name="play-fill"></sl-icon>
                                 Generate
                             </sl-button>
-                            ${this.isGenerating ? `
-                                <sl-button class="stop-btn" variant="danger" size="large" id="stop-btn" outline style="flex: 1;">
-                                    <sl-icon name="stop-fill"></sl-icon>
+                            
+                            <div style="display: flex; gap: 0.5rem;">
+                                <sl-button variant="neutral" size="small" id="apply-defaults-btn" outline style="flex: 1;">
+                                    <sl-icon slot="prefix" name="magic"></sl-icon>
+                                    RESTORE OPTIMAL DEFAULTS
                                 </sl-button>
-                            ` : ''}
+
+                                ${this.isGenerating ? `
+                                    <sl-button class="stop-btn" variant="danger" size="small" id="stop-btn" outline>
+                                        <sl-icon name="stop-fill"></sl-icon>
+                                    </sl-button>
+                                ` : ''}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -959,6 +1003,7 @@ class QpRender extends HTMLElement {
 
         if (this.isGenerating) this.updateStatus();
 
+        this.shadowRoot.getElementById('apply-defaults-btn')?.addEventListener('click', () => this.applyDefaultSettings());
         this.shadowRoot.getElementById('gen-btn')?.addEventListener('click', () => this.generate());
         this.shadowRoot.getElementById('stop-btn')?.addEventListener('click', () => this.stop());
         this.shadowRoot.getElementById('model-select')?.addEventListener('sl-change', (e) => {
@@ -1014,8 +1059,8 @@ class QpRender extends HTMLElement {
     }
 }
 
-class QpRenderSdxl extends QpRender { constructor() { super('sdxl'); } }
-class QpRenderFlux extends QpRender { constructor() { super('flux'); } }
+class QpRenderSdxl extends QpRender { constructor() { super('sdxl'); this.defaultSteps = 30; this.defaultGuidance = 7.0; } }
+class QpRenderFlux extends QpRender { constructor() { super('flux'); this.defaultSteps = 4; this.defaultGuidance = 1.0; } }
 // Decided to remove standard SD35 to keep only Turbo as requested
 
 customElements.define('qp-render-sdxl', QpRenderSdxl);
@@ -1104,6 +1149,7 @@ class QpInpaint extends QpRender {
         this.ctx = null;
         this.maskCanvas = null;
         this.savedMaskData = null;
+        this.endpoint = '/inpaint';
     }
 
     connectedCallback() {
@@ -1474,6 +1520,7 @@ class QpOutpaint extends QpRender {
         this.expandLeft = 0;
         this.expandRight = 0;
         this.step = 64;
+        this.endpoint = '/outpaint';
     }
 
     connectedCallback() {
@@ -1867,6 +1914,7 @@ class UpscalerV3 extends HTMLElement {
         this.currentStep = 0;
         this.totalSteps = 0;
         this.hasRendered = false;
+        this.endpoint = "/upscale";
         console.log("[UpscalerV3] Constructor finished successfully.");
     }
 
@@ -2131,10 +2179,45 @@ class QpRembg extends HTMLElement {
         this.attachShadow({ mode: 'open' });
         this.isGenerating = false;
         this.lastImageUrl = "";
+        this.endpoint = "/rembg";
     }
 
     connectedCallback() {
         this.render();
+    }
+
+    async submitAndPollTask(endpoint, payload) {
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const submission = await response.json();
+            if (submission.status === 'queued') {
+                const taskId = submission.task_id;
+                while (true) {
+                    if (!this.isGenerating) return null;
+                    const statusResp = await fetch(`/queue/status/${taskId}`);
+                    const task = await statusResp.json();
+                    if (task.status === 'COMPLETED') {
+                        if (task.result && typeof task.result === 'object') {
+                            task.result.request_id = taskId;
+                        }
+                        return task.result;
+                    }
+                    if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+                        throw new Error(task.error || "Task failed");
+                    }
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            }
+            return submission.data;
+        } catch (e) {
+            console.error("[Queue Polling Error]", e);
+            throw e;
+        }
     }
 
     async generate() {
@@ -2154,51 +2237,27 @@ class QpRembg extends HTMLElement {
 
         if (!image) {
             window.qpyt_app.notify("REMBG requires a Source Image or a previous generation!", "danger");
+            this.isGenerating = false;
+            this.render();
             return;
         }
 
-        this.isGenerating = true;
-        this.render();
-
         try {
-            const response = await fetch('/rembg', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image })
-            });
+            const data = await this.submitAndPollTask('/rembg', { image });
+            if (data) {
+                this.lastImageUrl = data.image_url;
+                if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
 
-            const submission = await response.json();
-            if (submission.status === 'queued') {
-                const taskId = submission.task_id;
-                while (true) {
-                    if (!this.isGenerating) break;
-                    const statusResp = await fetch(`/queue/status/${taskId}`);
-                    const task = await statusResp.json();
-                    if (task.status === 'COMPLETED') {
-                        const data = task.result;
-                        if (data && typeof data === 'object') {
-                            data.request_id = taskId;
-                        }
-                        this.lastImageUrl = data.image_url;
-                        if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
+                // Signal global output
+                window.dispatchEvent(new CustomEvent('qpyt-output', {
+                    detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
+                    bubbles: true,
+                    composed: true
+                }));
 
-                        // Signal global output
-                        window.dispatchEvent(new CustomEvent('qpyt-output', {
-                            detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
-                            bubbles: true,
-                            composed: true
-                        }));
-
-                        const dashboard = document.querySelector('qp-dashboard');
-                        if (dashboard) dashboard.addEntry(data);
-                        window.qpyt_app.notify("Background removed!", "success");
-                        break;
-                    }
-                    if (task.status === 'FAILED' || task.status === 'CANCELLED') {
-                        throw new Error(task.error || "Rembg task failed");
-                    }
-                    await new Promise(r => setTimeout(r, 1000));
-                }
+                const dashboard = document.querySelector('qp-dashboard');
+                if (dashboard) dashboard.addEntry(data);
+                window.qpyt_app.notify("Background removed!", "success");
             }
         }
         catch (e) {
@@ -3281,7 +3340,4 @@ class QpControlNet extends HTMLElement {
 customElements.define('qp-controlnet', QpControlNet);
 
 // Specific Generators (Manual mapping for Z-Image)
-class QpRenderZImage extends QpRender { constructor() { super('zimage'); } }
-customElements.define('qp-render-zimage', QpRenderZImage);
-
 
