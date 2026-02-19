@@ -1,3 +1,5 @@
+// Logic_Zone: SAFE | Delta_Initial: 0.35 | Resolution: convergent
+// [WFGY-Metadata] Civitai Explorer Brick Implementation
 class QpCivitai extends HTMLElement {
     constructor() {
         super();

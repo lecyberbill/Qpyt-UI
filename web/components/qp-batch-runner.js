@@ -1,3 +1,5 @@
+// Logic_Zone: TRANSIT | Delta_Initial: 0.55 | Resolution: convergent
+// [WFGY-Metadata] Batch Runner Expansion and UX fixes
 /**
  * Batch Runner Brick
  * Test multiple prompts and seeds systematically in a grid.
