@@ -188,6 +188,6 @@ class SpriteService:
         return {
             "status": "success",
             "path": save_path,
-            "url": f"/view/{day_folder}/{filename}",
+            "url": f"/outputs/{day_folder}/{filename}",
             "seed": seed
         }

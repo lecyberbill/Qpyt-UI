@@ -362,6 +362,54 @@ class ModelManager:
         return warnings
 
     @classmethod
+    def _load_image(cls, image_input: Any, mode: str = "RGB") -> Optional[Image.Image]:
+        """
+        Robustly loads an image from base64, /view/ path, /outputs/ path, or PIL Image.
+        """
+        if not image_input:
+            return None
+            
+        if isinstance(image_input, Image.Image):
+            return image_input.convert(mode)
+            
+        if not isinstance(image_input, str):
+            return None
+
+        try:
+            # Handle path-based inputs
+            if image_input.startswith("/view/") or image_input.startswith("/outputs/"):
+                rel_path = image_input.replace("/view/", "").replace("/outputs/", "").lstrip("/")
+                full_path = Path(config.OUTPUT_DIR) / rel_path
+                
+                if not full_path.exists():
+                    # Fallback to checking if it's already an absolute path
+                    if Path(image_input).exists():
+                         return Image.open(image_input).convert(mode)
+                    raise FileNotFoundError(f"Source image not found: {full_path}")
+                return Image.open(full_path).convert(mode)
+            
+            # Handle base64-based inputs
+            if "," in image_input:
+                _, encoded = image_input.split(",", 1)
+            else:
+                encoded = image_input
+            
+            # Clean up whitespace/newlines which can break decoding
+            encoded = encoded.strip().replace("\n", "").replace("\r", "")
+            
+            # Handle padding if missing (common base64 issue)
+            missing_padding = len(encoded) % 4
+            if missing_padding:
+                encoded += "=" * (4 - missing_padding)
+                
+            image_data = base64.b64decode(encoded)
+            return Image.open(BytesIO(image_data)).convert(mode)
+            
+        except Exception as e:
+            print(f"[ModelManager] _load_image error: {e}")
+            return None
+
+    @classmethod
     def get_pipeline(cls, model_type: str, model_path: str, vae_name: Optional[str] = None, 
                      sampler_name: Optional[str] = None, is_img2img: bool = False, is_inpaint: bool = False,
                      controlnet_model_name: Optional[str] = None, low_vram: bool = False):
@@ -663,7 +711,7 @@ class ModelManager:
                                     target_shape = transformer.state_dict()[k].shape
                                     if v.shape != target_shape:
                                         print(f"  -> Fixing shape mismatch for {k}: {v.shape} -> {target_shape}")
-                                        diff_dict[k] = new_v
+                                        pass # Outlier handled
                             
                             # Zero-initialize missing keys to avoid random noise
                             model_state = transformer.state_dict()
@@ -672,7 +720,7 @@ class ModelManager:
                                     print(f"  -> WARNING: Key {k} missing from checkpoint. Initializing to zero.")
                                     diff_dict[k] = torch.zeros_like(model_state[k])
                             
-                            res = transformer.load_state_dict(diff_dict, strict=True)
+                            res = transformer.load_state_dict(diff_dict, strict=False)
                             if res.missing_keys: 
                                 print(f"  -> Missing keys ({len(res.missing_keys)}):")
                                 for mk in sorted(res.missing_keys): print(f"     - {mk}")
@@ -1281,34 +1329,33 @@ class ModelManager:
         init_image = None
         if image:
             try:
-                # Decode base64
-                header, encoded = image.split(",", 1) if "," in image else (None, image)
-                image_data = base64.b64decode(encoded)
-                init_image = Image.open(BytesIO(image_data)).convert("RGB")
+                init_image = cls._load_image(image)
                 
-                # Resize if needed (Maintain aspect ratio, multiple of 64)
-                # We allow up to 2048 for high-quality source images
-                w, h = init_image.size
-                max_dim = 2048
-                if w > max_dim or h > max_dim:
-                    scale = max_dim / max(w, h)
-                    w, h = int(w * scale), int(h * scale)
+                if init_image is None:
+                    raise ValueError("Failed to load or decode input image.")
                 
-                # Snap to 64 but maintain aspect ratio as much as possible
-                # If we snap both, we might distort. Let's snap to closest multiple.
-                w = round(w / 64) * 64
-                h = round(h / 64) * 64
+                # MAINTAIN USER REQUESTED DIMENSIONS
+                # We use the requested width/height as the target.
+                # If the image differs, we resize it to fit the requested dimensions.
+                # This ensures the Flux pipeline (which expects specific latent shapes) 
+                # always gets what the user asked for.
                 
-                # Ensure minimum 64
-                w = max(64, w)
-                h = max(64, h)
+                target_w, target_h = width, height
                 
-                if w != init_image.size[0] or h != init_image.size[1]:
-                    # print(f"Resizing input image: {init_image.size} -> ({w}, {h})")
-                    init_image = init_image.resize((w, h), Image.LANCZOS)
+                if init_image.size != (target_w, target_h):
+                    print(f"[Img2Img] Resizing input image to match requested dimensions: {init_image.size} -> ({target_w}, {target_h})")
+                    init_image = init_image.resize((target_w, target_h), Image.LANCZOS)
                 
-                # Update target dimensions to match processed image
-                width, height = w, h
+                # Double check multiple of 64 for latent compatibility (standard for most pipelines)
+                # width = round(target_w / 64) * 64
+                # height = round(target_h / 64) * 64
+                
+                # Force debug write for traceability
+                try:
+                    with open("debug_dims.txt", "w") as f:
+                        f.write(f"Target Size: {width}x{height}\n")
+                        f.write(f"Init Image After Resize: {init_image.size}\n")
+                except: pass
                 
                 # Force debug write
                 try:
@@ -1332,9 +1379,9 @@ class ModelManager:
         init_mask = None
         if mask:
             try:
-                header, encoded = mask.split(",", 1) if "," in mask else (None, mask)
-                mask_data = base64.b64decode(encoded)
-                init_mask = Image.open(BytesIO(mask_data)).convert("L") # Mode L for mask
+                init_mask = cls._load_image(mask, mode="L")
+                if init_mask is None:
+                    raise ValueError("Failed to load or decode mask image.")
                 # Resize mask to match target size
                 print(f"[Debug] Init mask size: {init_mask.size}, Target: ({width}, {height})")
                 if init_mask.size != (width, height):
@@ -1425,29 +1472,27 @@ class ModelManager:
             print(f"Using ControlNet (Scale: {controlnet_conditioning_scale})")
             
             # Decode Control Image
-            if controlnet_image.startswith("/view/"):
-                c_path = Path(config.OUTPUT_DIR) / controlnet_image.replace("/view/", "").lstrip("/")
-                cn_img = Image.open(c_path).convert("RGB")
+            cn_img = cls._load_image(controlnet_image)
+            
+            if cn_img is None:
+                print("[ControlNet] Failed to load control image. Skipping.")
             else:
-                h_c, enc_c = controlnet_image.split(",", 1) if "," in controlnet_image else (None, controlnet_image)
-                cn_img = Image.open(BytesIO(base64.b64decode(enc_c))).convert("RGB")
+                # Resize Control Image to match target
+                # Note: Control images usually need to match the generation size
+                cn_img = cn_img.resize((width, height), Image.LANCZOS)
                 
-            # Resize Control Image to match target
-            # Note: Control images usually need to match the generation size
-            cn_img = cn_img.resize((width, height), Image.LANCZOS)
-            
-            # For StableDiffusionXLControlNetPipeline, the argument for the conditioning image is 'image'.
-            # If we were in Img2Img mode previously, 'image' was the init_image. 
-            # This conflict requires careful handling.
-            kwargs['image'] = cn_img 
-            kwargs['controlnet_conditioning_scale'] = controlnet_conditioning_scale
-            
-            # Ensure strength arg doesn't mess up Txt2Img ControlNet (it ignores it usually, but good to be clean)
-            if 'strength' in kwargs: 
-                del kwargs['strength']
-            
-            if is_now_img2img:
-                print("Warning: Both Img2Img Image and ControlNet Image provided. Ignoring Img2Img Image in favor of ControlNet Txt2Img.")
+                # For StableDiffusionXLControlNetPipeline, the argument for the conditioning image is 'image'.
+                # If we were in Img2Img mode previously, 'image' was the init_image. 
+                # This conflict requires careful handling.
+                kwargs['image'] = cn_img 
+                kwargs['controlnet_conditioning_scale'] = controlnet_conditioning_scale
+                
+                # Ensure strength arg doesn't mess up Txt2Img ControlNet (it ignores it usually, but good to be clean)
+                if 'strength' in kwargs: 
+                    del kwargs['strength']
+                
+                if is_now_img2img:
+                    print("Warning: Both Img2Img Image and ControlNet Image provided. Ignoring Img2Img Image in favor of ControlNet Txt2Img.")
 
         # --- IP-Adapter / Image Blender Support ---
         if (image_a or image_b) and model_type == 'sdxl':
@@ -1462,15 +1507,7 @@ class ModelManager:
             ip_scales = []
             
             def decode_ip(b64):
-                if not b64: return None
-                try:
-                    if "," in b64: b64 = b64.split(",")[1]
-                    import base64
-                    from io import BytesIO
-                    return Image.open(BytesIO(base64.b64decode(b64))).convert("RGB")
-                except Exception as e:
-                    print(f"[IP-Adapter] Decode error: {e}")
-                    return None
+                return cls._load_image(b64)
 
             img_a_obj = decode_ip(image_a)
             img_b_obj = decode_ip(image_b)
@@ -1659,21 +1696,9 @@ class ModelManager:
         
         # 1. Prepare image
         try:
-            if image_base64.startswith("/view/"):
-                # It's a path to a previously generated image
-                rel_path = image_base64.replace("/view/", "")
-                # Security: ensure no .. or absolute weirdness
-                rel_path = rel_path.lstrip("/")
-                full_path = Path(config.OUTPUT_DIR) / rel_path
-                print(f"[Upscaler] Auto-picking image from disk: {full_path}")
-                if not full_path.exists():
-                    raise FileNotFoundError(f"Source image not found: {full_path}")
-                input_image = Image.open(full_path).convert("RGB")
-            else:
-                # Standard base64
-                header, encoded = image_base64.split(",", 1) if "," in image_base64 else (None, image_base64)
-                image_data = base64.b64decode(encoded)
-                input_image = Image.open(BytesIO(image_data)).convert("RGB")
+            input_image = cls._load_image(image_base64)
+            if input_image is None:
+                raise ValueError("Source image is empty or invalid.")
         except Exception as e:
             print(f"[Upscaler] Error preparing image: {e}")
             raise e

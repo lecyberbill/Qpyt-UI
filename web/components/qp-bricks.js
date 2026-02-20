@@ -14,6 +14,21 @@ class QpPrompt extends HTMLElement {
         this.fetchConfig();
     }
 
+    async fetchConfig() {
+        try {
+            const res = await fetch('/config');
+            const config = await res.json();
+            if (config && config.settings) {
+                this.negativePrompt = config.settings.NEGATIVE_PROMPT || "";
+                // Force re-render once data is loaded
+                this.hasRendered = false;
+                this.render();
+            }
+        } catch (e) {
+            console.error("[QpPrompt] Failed to fetch config", e);
+        }
+    }
+
     toggleLock(field, btn) {
         if (this.lockedFields.has(field)) {
             this.lockedFields.delete(field);
@@ -44,6 +59,31 @@ class QpPrompt extends HTMLElement {
                     top: 0;
                     right: 0;
                     z-index: 10;
+                }
+                .lock-btn {
+                    position: absolute;
+                    top: 5px;
+                    right: 5px;
+                    z-index: 20;
+                    font-size: 1.2rem;
+                    color: #64748b;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .lock-btn:hover {
+                    color: #a855f7;
+                    transform: scale(1.1);
+                }
+                .lock-btn.active {
+                    color: #f59e0b;
+                }
+                .locked-input {
+                    opacity: 0.7;
+                    filter: saturate(0.5);
+                    pointer-events: none;
+                }
+                .locked-input::part(base) {
+                    border-color: #f59e0b !important;
                 }
             </style>
             <qp-cartridge title="Prompt" type="input" brick-id="${brickId}">
@@ -308,6 +348,26 @@ class QpSettings extends HTMLElement {
         this.lockedFields = new Set();
     }
 
+    connectedCallback() {
+        this.render();
+        this.fetchConfig();
+    }
+
+    async fetchConfig() {
+        try {
+            const res = await fetch('/config');
+            const data = await res.json();
+            if (data && data.settings) {
+                this.formats = data.settings.FORMATS || [];
+                // Force re-render
+                this.hasRendered = false;
+                this.render();
+            }
+        } catch (e) {
+            console.error("[QpSettings] Failed to fetch config", e);
+        }
+    }
+
     toggleLock(field, btn) {
         if (this.lockedFields.has(field)) {
             this.lockedFields.delete(field);
@@ -350,6 +410,31 @@ class QpSettings extends HTMLElement {
         this.shadowRoot.innerHTML = `
             <style>
                 .field-container { position: relative; display: flex; flex-direction: column; }
+                .lock-btn {
+                    position: absolute;
+                    top: 5px;
+                    right: 5px;
+                    z-index: 20;
+                    font-size: 1.2rem;
+                    color: #64748b;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .lock-btn:hover {
+                    color: #a855f7;
+                    transform: scale(1.1);
+                }
+                .lock-btn.active {
+                    color: #f59e0b;
+                }
+                .locked-input {
+                    opacity: 0.7;
+                    filter: saturate(0.5);
+                    pointer-events: none;
+                }
+                .locked-input::part(base) {
+                    border-color: #f59e0b !important;
+                }
             </style>
             <qp-cartridge title="Settings" type="setting" brick-id="${brickId}">
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
@@ -410,6 +495,14 @@ class QpSettings extends HTMLElement {
             const v = e.target.value;
             this.seed = (v === "" || v === null) ? null : parseInt(v);
         });
+    }
+    handleFormatChange(e) {
+        this.selectedDimension = e.target.value;
+        console.log("[Settings] Dimension changed to:", this.selectedDimension);
+    }
+    handleOutputFormatChange(e) {
+        this.selectedOutputFormat = e.target.value;
+        console.log("[Settings] Output format changed to:", this.selectedOutputFormat);
     }
     get values() {
         // Source of truth is now the class state (which is kept in sync with inputs via listeners)
