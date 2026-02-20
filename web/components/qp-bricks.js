@@ -7,23 +7,26 @@ class QpPrompt extends HTMLElement {
         this.attachShadow({ mode: 'open' });
         this.negativePrompt = "";
         this.hasRendered = false;
+        this.lockedFields = new Set();
     }
     connectedCallback() {
         this.render();
         this.fetchConfig();
     }
-    async fetchConfig() {
-        try {
-            const res = await fetch('/config');
-            const data = await res.json();
-            if (data.settings && data.settings.NEGATIVE_PROMPT) {
-                this.negativePrompt = data.settings.NEGATIVE_PROMPT;
-                const negInput = this.shadowRoot.querySelector('#negative-input');
-                if (negInput) negInput.value = this.negativePrompt;
-            }
-        } catch (e) { console.error("Failed to fetch config for negative prompt", e); }
+
+    toggleLock(field, btn) {
+        if (this.lockedFields.has(field)) {
+            this.lockedFields.delete(field);
+            btn.classList.remove('active');
+            btn.name = 'lock-open';
+            this.shadowRoot.querySelector(`#${field}-input`).classList.remove('locked-input');
+        } else {
+            this.lockedFields.add(field);
+            btn.classList.add('active');
+            btn.name = 'lock';
+            this.shadowRoot.querySelector(`#${field}-input`).classList.add('locked-input');
+        }
     }
-    attributeChangedCallback() { this.render(); }
 
     render() {
         if (this.hasRendered) return;
@@ -31,6 +34,11 @@ class QpPrompt extends HTMLElement {
         const brickId = this.getAttribute('brick-id') || '';
         this.shadowRoot.innerHTML = `
             <style>
+                .field-container {
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                }
                 .expand-btn {
                     position: absolute;
                     top: 0;
@@ -43,13 +51,23 @@ class QpPrompt extends HTMLElement {
                     <sl-tooltip content="Open Editor">
                         <sl-icon-button class="expand-btn" name="arrows-angle-expand" label="Expand"></sl-icon-button>
                     </sl-tooltip>
-                    <sl-textarea id="prompt-input" name="prompt" label="Positive Prompt" placeholder="What do you want to see?" resize="none" style="flex-grow: 1;"></sl-textarea>
-                    <sl-textarea id="negative-input" name="negative_prompt" label="Negative Prompt" value="${this.negativePrompt}" placeholder="What do you want to avoid?" resize="none" style="height: 120px;"></sl-textarea>
+                    
+                    <div class="field-container">
+                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-prompt" title="Lock Prompt"></sl-icon-button>
+                        <sl-textarea id="prompt-input" name="prompt" label="Positive Prompt" placeholder="What do you want to see?" resize="none" style="flex-grow: 1;"></sl-textarea>
+                    </div>
+
+                    <div class="field-container">
+                         <sl-icon-button class="lock-btn" name="lock-open" id="lock-negative" title="Lock Negative Prompt"></sl-icon-button>
+                         <sl-textarea id="negative-input" name="negative_prompt" label="Negative Prompt" value="${this.negativePrompt}" placeholder="What do you want to avoid?" resize="none" style="height: 120px;"></sl-textarea>
+                    </div>
+
                     <div style="margin-top: auto; color: #64748b; font-size: 0.8rem;">
                         ✍️ Be specific for better results.
                     </div>
                 </div>
             </qp-cartridge>
+            <!-- ... dialog omitted for brevity in replace, but keeping logic ... -->
 
             <sl-dialog label="Prompt Editor" class="prompt-dialog" style="--width: 80vw;">
                 <div style="display: flex; flex-direction: column; gap: 1rem; height: 70vh;">
@@ -81,10 +99,13 @@ class QpPrompt extends HTMLElement {
             });
         }
 
+        this.shadowRoot.getElementById('lock-prompt').addEventListener('click', (e) => this.toggleLock('prompt', e.target));
+        this.shadowRoot.getElementById('lock-negative').addEventListener('click', (e) => this.toggleLock('negative', e.target));
+
         if (saveBtn) {
             saveBtn.addEventListener('click', () => {
-                pInput.value = dPInput.value;
-                nInput.value = dNInput.value;
+                if (!this.lockedFields.has('prompt')) pInput.value = dPInput.value;
+                if (!this.lockedFields.has('negative')) nInput.value = dNInput.value;
                 dialog.hide();
             });
         }
@@ -103,6 +124,7 @@ class QpPrompt extends HTMLElement {
 
     // Allow external injection
     setPrompt(text) {
+        if (this.lockedFields.has('prompt')) return;
         const input = this.shadowRoot.querySelector('#prompt-input');
         if (input) {
             input.value = text;
@@ -113,8 +135,8 @@ class QpPrompt extends HTMLElement {
         if (!values) return;
         const pInput = this.shadowRoot.querySelector('#prompt-input');
         const nInput = this.shadowRoot.querySelector('#negative-input');
-        if (pInput && values.prompt !== undefined) pInput.value = values.prompt;
-        if (nInput && values.negative_prompt !== undefined) nInput.value = values.negative_prompt;
+        if (pInput && values.prompt !== undefined && !this.lockedFields.has('prompt')) pInput.value = values.prompt;
+        if (nInput && values.negative_prompt !== undefined && !this.lockedFields.has('negative')) nInput.value = values.negative_prompt;
     }
 }
 customElements.define('qp-prompt', QpPrompt);
@@ -278,58 +300,44 @@ class QpSettings extends HTMLElement {
         this.formats = [];
         this.selectedDimension = "1024*1024";
         this.selectedOutputFormat = "webp";
-
-        // State persistence
         this.guidanceScale = 7.0;
         this.inferenceSteps = 30;
         this.batchCount = 1;
         this.seed = null;
-
         this.hasRendered = false;
-    }
-    connectedCallback() {
-        this.render();
-        this.fetchFormats();
-    }
-    async fetchFormats() {
-        try {
-            const res = await fetch('/config');
-            const data = await res.json();
-            if (data.settings) {
-                if (data.settings.FORMATS) {
-                    this.formats = data.settings.FORMATS;
-                }
-                if (data.settings.IMAGE_FORMAT) {
-                    this.selectedOutputFormat = data.settings.IMAGE_FORMAT;
-                }
-                this.hasRendered = false; // Re-render to show options
-                this.render();
-            }
-        } catch (e) { console.error(e); }
+        this.lockedFields = new Set();
     }
 
-    handleFormatChange(e) {
-        this.selectedDimension = e.target.value;
+    toggleLock(field, btn) {
+        if (this.lockedFields.has(field)) {
+            this.lockedFields.delete(field);
+            btn.classList.remove('active');
+            btn.name = 'lock-open';
+            this.shadowRoot.querySelector(`#${field}-input`)?.classList.remove('locked-input');
+            this.shadowRoot.querySelector(`#${field}-select`)?.classList.remove('locked-input');
+        } else {
+            this.lockedFields.add(field);
+            btn.classList.add('active');
+            btn.name = 'lock';
+            this.shadowRoot.querySelector(`#${field}-input`)?.classList.add('locked-input');
+            this.shadowRoot.querySelector(`#${field}-select`)?.classList.add('locked-input');
+        }
     }
-
-    handleOutputFormatChange(e) {
-        this.selectedOutputFormat = e.target.value;
-    }
-
-    attributeChangedCallback() { this.render(); }
 
     setValues(values) {
         if (!values) return;
-        if (values.width && values.height) {
+        if (values.width && values.height && !this.lockedFields.has('format')) {
             this.selectedDimension = `${values.width}*${values.height}`;
         }
-        this.selectedOutputFormat = values.output_format || this.selectedOutputFormat;
+        if (values.output_format && !this.lockedFields.has('output-format')) {
+            this.selectedOutputFormat = values.output_format;
+        }
 
-        if (values.guidance_scale !== undefined) this.guidanceScale = Number(values.guidance_scale);
-        if (values.num_inference_steps !== undefined) this.inferenceSteps = parseInt(values.num_inference_steps);
-        if (values.batch_count !== undefined) this.batchCount = parseInt(values.batch_count);
-        if (values.seed !== undefined && values.seed !== "") this.seed = parseInt(values.seed);
-        else if (values.seed === "" || values.seed === null) this.seed = null;
+        if (values.guidance_scale !== undefined && !this.lockedFields.has('gs')) this.guidanceScale = Number(values.guidance_scale);
+        if (values.num_inference_steps !== undefined && !this.lockedFields.has('steps')) this.inferenceSteps = parseInt(values.num_inference_steps);
+        if (values.batch_count !== undefined && !this.lockedFields.has('batch')) this.batchCount = parseInt(values.batch_count);
+        if (values.seed !== undefined && values.seed !== "" && !this.lockedFields.has('seed')) this.seed = parseInt(values.seed);
+        else if ((values.seed === "" || values.seed === null) && !this.lockedFields.has('seed')) this.seed = null;
 
         this.hasRendered = false;
         this.render();
@@ -340,30 +348,59 @@ class QpSettings extends HTMLElement {
         this.hasRendered = true;
         const brickId = this.getAttribute('brick-id') || '';
         this.shadowRoot.innerHTML = `
+            <style>
+                .field-container { position: relative; display: flex; flex-direction: column; }
+            </style>
             <qp-cartridge title="Settings" type="setting" brick-id="${brickId}">
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                     
-                    <sl-select id="format-select" label="Image Dimensions" value="${this.selectedDimension}" hoist>
-                        ${this.formats.map(f => `<sl-option value="${f.dimensions}">${f.orientation}: ${f.dimensions}</sl-option>`).join('')}
-                        ${!this.formats.some(f => f.dimensions === this.selectedDimension) ? `<sl-option value="${this.selectedDimension}">Custom: ${this.selectedDimension}</sl-option>` : ''}
-                    </sl-select>
+                    <div class="field-container">
+                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-format" title="Lock Dimensions"></sl-icon-button>
+                        <sl-select id="format-select" label="Image Dimensions" value="${this.selectedDimension}" hoist>
+                            ${this.formats.map(f => `<sl-option value="${f.dimensions}">${f.orientation}: ${f.dimensions}</sl-option>`).join('')}
+                            ${!this.formats.some(f => f.dimensions === this.selectedDimension) ? `<sl-option value="${this.selectedDimension}">Custom: ${this.selectedDimension}</sl-option>` : ''}
+                        </sl-select>
+                    </div>
 
-                    <sl-input id="gs-input" type="number" step="0.1" label="Guidance Scale" value="${this.guidanceScale}"></sl-input>
-                    <sl-input id="steps-input" type="number" label="Inference Steps" value="${this.inferenceSteps}"></sl-input>
-                    <sl-input id="batch-input" type="number" label="Images to Generate" value="${this.batchCount}" min="1"></sl-input>
-                    <sl-input id="seed-input" type="number" label="Seed" placeholder="Random (leave empty)" value="${this.seed !== null ? this.seed : ''}"></sl-input>
+                    <div class="field-container">
+                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-gs"></sl-icon-button>
+                        <sl-input id="gs-input" type="number" step="0.1" label="Guidance Scale" value="${this.guidanceScale}"></sl-input>
+                    </div>
 
-                    <sl-select id="output-format-select" label="Output File Format" value="${this.selectedOutputFormat}" hoist>
-                        <sl-option value="png">PNG (Lossless / Large)</sl-option>
-                        <sl-option value="jpeg">JPEG (Compressed / Small)</sl-option>
-                        <sl-option value="webp">WebP (Modern / Efficient)</sl-option>
-                    </sl-select>
+                    <div class="field-container">
+                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-steps"></sl-icon-button>
+                        <sl-input id="steps-input" type="number" label="Inference Steps" value="${this.inferenceSteps}"></sl-input>
+                    </div>
+
+                    <div class="field-container">
+                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-batch"></sl-icon-button>
+                        <sl-input id="batch-input" type="number" label="Images to Generate" value="${this.batchCount}" min="1"></sl-input>
+                    </div>
+
+                    <div class="field-container">
+                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-seed"></sl-icon-button>
+                        <sl-input id="seed-input" type="number" label="Seed" placeholder="Random (leave empty)" value="${this.seed !== null ? this.seed : ''}"></sl-input>
+                    </div>
+
+                    <div class="field-container">
+                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-output-format"></sl-icon-button>
+                        <sl-select id="output-format-select" label="Output File Format" value="${this.selectedOutputFormat}" hoist>
+                            <sl-option value="png">PNG (Lossless / Large)</sl-option>
+                            <sl-option value="jpeg">JPEG (Compressed / Small)</sl-option>
+                            <sl-option value="webp">WebP (Modern / Efficient)</sl-option>
+                        </sl-select>
+                    </div>
                 </div>
             </qp-cartridge>
         `;
 
         this.shadowRoot.getElementById('format-select').addEventListener('sl-change', (e) => this.handleFormatChange(e));
         this.shadowRoot.getElementById('output-format-select').addEventListener('sl-change', (e) => this.handleOutputFormatChange(e));
+
+        // Lock events
+        ['format', 'gs', 'steps', 'batch', 'seed', 'output-format'].forEach(f => {
+            this.shadowRoot.getElementById(`lock-${f}`).addEventListener('click', (e) => this.toggleLock(f, e.target));
+        });
 
         // Bind inputs to class state
         this.shadowRoot.getElementById('gs-input').addEventListener('sl-input', (e) => this.guidanceScale = Number(e.target.value));
@@ -2125,7 +2162,7 @@ class QpImageOut extends HTMLElement {
                     overflow: hidden;
                     position: relative;
                 }
-                .image-box img {
+                .image-box img, .image-box video {
                     width: 100%;
                     height: 100%;
                     object-fit: contain;
@@ -2141,9 +2178,11 @@ class QpImageOut extends HTMLElement {
             <qp-cartridge title="Final Output" type="output" brick-id="${brickId}">
                 <div class="out-container">
                     <div class="image-box" id="preview-box">
-                        ${this.currentUrl ? `
-                            <img src="${this.currentUrl}" alt="Final image">
+                        ${this.currentUrl ? (this.currentUrl.toLowerCase().endsWith('.mp4') ? `
+                            <video src="${this.currentUrl}" controls autoplay loop></video>
                         ` : `
+                            <img src="${this.currentUrl}" alt="Final image">
+                        `) : `
                             <div class="empty-msg">
                                 <sl-icon name="hourglass" style="font-size: 2rem; margin-bottom: 0.5rem;"></sl-icon>
                                 <div>Waiting for generation...</div>
@@ -3352,5 +3391,184 @@ class QpControlNet extends HTMLElement {
 }
 customElements.define('qp-controlnet', QpControlNet);
 
-// Specific Generators (Manual mapping for Z-Image)
+// Video Generator Cartridge
+class QpVideo extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.selectedModel = "THUDM/CogVideoX-2b";
+        this.numFrames = 49;
+        this.fps = 8;
+        this.numSteps = 50;
+        this.guidanceScale = 6.0;
+        this.seed = null;
+        this.lowVram = true;
+        this.isGenerating = false;
+        this.lastVideoUrl = '';
+        this.hasRendered = false;
+    }
+
+    connectedCallback() {
+        this.render();
+    }
+
+    render() {
+        if (this.hasRendered) return;
+        this.hasRendered = true;
+        const brickId = this.getAttribute('brick-id') || '';
+
+        this.shadowRoot.innerHTML = `
+            <style>
+                .preview-video { width: 100%; border-radius: 0.8rem; background: #000; aspect-ratio: 16/9; }
+                .gen-overlay {
+                    position: absolute; top:0; left:0; width:100%; height:100%;
+                    display:flex; flex-direction:column; align-items:center; justify-content:center;
+                    background: rgba(0,0,0,0.6); z-index:10; border-radius: 0.8rem;
+                }
+            </style>
+            <qp-cartridge title="CogVideo" type="generator" brick-id="${brickId}">
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    
+                    <div id="video-area" style="position: relative;">
+                        ${this.isGenerating ? `
+                            <div class="gen-overlay">
+                                <sl-spinner style="font-size: 2rem;"></sl-spinner>
+                                <div style="color: #10b981; margin-top: 0.5rem; font-weight: 600;">Generating Video...</div>
+                            </div>
+                        ` : ''}
+                        ${this.lastVideoUrl ? `
+                            <video class="preview-video" src="${this.lastVideoUrl}" controls autoplay loop></video>
+                        ` : `
+                            <div class="preview-video" style="display:flex; align-items:center; justify-content:center; color: #475569;">
+                                <sl-icon name="camera-reels" style="font-size: 3rem;"></sl-icon>
+                            </div>
+                        `}
+                    </div>
+
+                    <sl-select label="CogVideo Model" value="${this.selectedModel}" id="model-select">
+                        <sl-option value="THUDM/CogVideoX-2b">CogVideoX 2B (Fast)</sl-option>
+                        <sl-option value="THUDM/CogVideoX-5b">CogVideoX 5B (High Quality)</sl-option>
+                    </sl-select>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                        <sl-input type="number" label="Frames" value="${this.numFrames}" id="frames-input"></sl-input>
+                        <sl-input type="number" label="FPS" value="${this.fps}" id="fps-input"></sl-input>
+                    </div>
+
+                    <sl-input type="number" label="Steps" value="${this.numSteps}" id="steps-input"></sl-input>
+                    <sl-input type="number" label="Guidance" step="0.1" value="${this.guidanceScale}" id="gs-input"></sl-input>
+                    <sl-input type="number" label="Seed" placeholder="Random" value="${this.seed || ''}" id="seed-input"></sl-input>
+                    
+                    <sl-checkbox ${this.lowVram ? 'checked' : ''} id="lowvram-check">Enable Low VRAM mode</sl-checkbox>
+
+                    <sl-button variant="success" id="gen-btn" ${this.isGenerating ? 'loading' : ''}>
+                        <sl-icon slot="prefix" name="play-circle"></sl-icon>
+                        Generate Video
+                    </sl-button>
+                </div>
+            </qp-cartridge>
+        `;
+
+        this.shadowRoot.getElementById('model-select').addEventListener('sl-change', (e) => this.selectedModel = e.target.value);
+        this.shadowRoot.getElementById('frames-input').addEventListener('sl-input', (e) => this.numFrames = parseInt(e.target.value));
+        this.shadowRoot.getElementById('fps-input').addEventListener('sl-input', (e) => this.fps = parseInt(e.target.value));
+        this.shadowRoot.getElementById('steps-input').addEventListener('sl-input', (e) => this.numSteps = parseInt(e.target.value));
+        this.shadowRoot.getElementById('gs-input').addEventListener('sl-input', (e) => this.guidanceScale = parseFloat(e.target.value));
+        this.shadowRoot.getElementById('seed-input').addEventListener('sl-input', (e) => this.seed = e.target.value ? parseInt(e.target.value) : null);
+        this.shadowRoot.getElementById('lowvram-check').addEventListener('sl-change', (e) => this.lowVram = e.target.checked);
+
+        this.shadowRoot.getElementById('gen-btn').addEventListener('click', () => this.generate());
+    }
+
+    async generate() {
+        const promptEl = document.querySelector('qp-prompt');
+        if (!promptEl) {
+            window.qpyt_app?.notify("Prompt brick required!", "danger");
+            return;
+        }
+
+        const { prompt } = promptEl.getValue();
+        this.isGenerating = true;
+        this.hasRendered = false;
+        this.render();
+
+        try {
+            const resp = await fetch('/generate/video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt,
+                    model_name: this.selectedModel,
+                    num_frames: this.numFrames,
+                    fps: this.fps,
+                    num_inference_steps: this.numSteps,
+                    guidance_scale: this.guidanceScale,
+                    seed: this.seed,
+                    low_vram: this.lowVram
+                })
+            });
+
+            const submission = await resp.json();
+            if (submission.status === 'queued') {
+                const taskId = submission.task_id;
+                this.pollTask(taskId);
+            }
+        } catch (e) {
+            window.qpyt_app?.notify(`Video error: ${e.message}`, "danger");
+            this.isGenerating = false;
+            this.hasRendered = false;
+            this.render();
+        }
+    }
+
+    async pollTask(taskId) {
+        try {
+            const res = await fetch(`/queue/status/${taskId}`);
+            const task = await res.json();
+
+            if (task.status === 'COMPLETED') {
+                this.lastVideoUrl = task.result.image_url;
+                this.isGenerating = false;
+                this.hasRendered = false;
+                this.render();
+
+                // Signal global output
+                window.dispatchEvent(new CustomEvent('qpyt-output', {
+                    detail: {
+                        url: this.lastVideoUrl,
+                        brickId: this.getAttribute('brick-id'),
+                        params: {
+                            prompt: "CogVideo Generation",
+                            model: this.selectedModel
+                        }
+                    },
+                    bubbles: true,
+                    composed: true
+                }));
+
+                const dashboard = document.querySelector('qp-dashboard');
+                if (dashboard) {
+                    dashboard.addEntry({
+                        image_url: this.lastVideoUrl,
+                        status: 'success',
+                        execution_time: task.result.execution_time,
+                        metadata: task.result.metadata
+                    });
+                }
+
+                window.qpyt_app?.notify("Video generated!", "success");
+            } else if (task.status === 'FAILED') {
+                throw new Error(task.error || "Generation failed");
+            } else {
+                setTimeout(() => this.pollTask(taskId), 2000);
+            }
+        } catch (e) {
+            window.qpyt_app?.notify(e.message, "danger");
+            this.isGenerating = false;
+            this.hasRendered = false;
+            this.render();
+        }
+    }
+}
+customElements.define('qp-video', QpVideo);
 

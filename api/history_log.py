@@ -74,6 +74,21 @@ class HistoryLogManager:
         .image-side:hover img {{
             transform: scale(1.05);
         }}
+        .video-overlay {{
+            position: absolute;
+            background: rgba(0,0,0,0.5);
+            border-radius: 50%;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }}
+        .video-overlay svg {{
+            fill: white;
+            width: 30px;
+            height: 30px;
+        }}
         .info-side {{
             padding: 1.5rem;
             display: flex;
@@ -132,29 +147,45 @@ class HistoryLogManager:
             day_str = output_dir.name
             timestamp = datetime.now().strftime("%H:%M:%S")
 
-            # Prepare entry HTML
-            m = metadata
-            entry_html = f"""
-            <!-- ENTRY_START -->
-            <div class="entry">
+            is_video = image_name.lower().endswith(".mp4")
+            thumb_name = f"{Path(image_name).stem}_thumb.jpg" if is_video else image_name
+            
+            media_html = ""
+            if is_video:
+                media_html = f"""
+                <div class="image-side" style="position: relative;" onclick="window.open('{image_name}', '_blank')">
+                    <img src="{thumb_name}" alt="Video Thumbnail">
+                    <div class="video-overlay">
+                        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </div>
+                </div>
+                """
+            else:
+                media_html = f"""
                 <div class="image-side" onclick="window.open('{image_name}', '_blank')">
                     <img src="{image_name}" alt="Generated Image">
                 </div>
+                """
+
+            entry_html = f"""
+            <!-- ENTRY_START -->
+            <div class="entry">
+                {media_html}
                 <div class="info-side">
                     <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
                         <span>{timestamp}</span>
                         <span>{execution_time:.1f}s</span>
                     </div>
-                    <div class="prompt">"{m.get('prompt', 'No prompt')}"</div>
+                    <div class="prompt">"{metadata.get('prompt', 'No prompt')}"</div>
                     <div class="metadata-grid">
-                        <div class="meta-item"><b>Seed:</b> {m.get('seed', 'N/A')}</div>
-                        <div class="meta-item"><b>Model:</b> {m.get('model_name', 'N/A')}</div>
-                        <div class="meta-item"><b>Steps:</b> {m.get('num_inference_steps', 'N/A')}</div>
-                        <div class="meta-item"><b>Guidance:</b> {m.get('guidance_scale', 'N/A')}</div>
-                        <div class="meta-item"><b>Resolution:</b> {m.get('width', '?')}x{m.get('height', '?')}</div>
+                        <div class="meta-item"><b>Seed:</b> {metadata.get('seed', 'N/A')}</div>
+                        <div class="meta-item"><b>Model:</b> {metadata.get('model_name', 'N/A')}</div>
+                        <div class="meta-item"><b>Steps:</b> {metadata.get('num_inference_steps', 'N/A')}</div>
+                        <div class="meta-item"><b>Guidance:</b> {metadata.get('guidance_scale', 'N/A')}</div>
+                        <div class="meta-item"><b>Resolution:</b> {metadata.get('width', '?')}x{metadata.get('height', '?')}</div>
                         <div class="meta-item"><b>Format:</b> {image_name.split('.')[-1].upper()}</div>
                     </div>
-                    {f'<div style="font-size: 0.8rem; color: #10b981; margin-top: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);"><b>Applied LoRAs:</b><br/>' + "<br/>".join([f"• {Path(l['path']).stem} (Weight: {l['weight']})" for l in m['loras'] if l.get('enabled', True)]) + '</div>' if m.get('loras') and any(l.get('enabled', True) for l in m['loras']) else ''}
+                    {f'<div style="font-size: 0.8rem; color: #10b981; margin-top: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);"><b>Applied LoRAs:</b><br/>' + "<br/>".join([f"• {Path(l['path']).stem} (Weight: {l['weight']})" for l in metadata['loras'] if l.get('enabled', True)]) + '</div>' if metadata.get('loras') and any(l.get('enabled', True) for l in metadata['loras']) else ''}
                 </div>
             </div>
             <!-- ENTRY_END -->

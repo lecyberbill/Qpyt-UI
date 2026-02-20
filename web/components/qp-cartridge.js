@@ -152,6 +152,34 @@ class QpCartridge extends HTMLElement {
                     z-index: 2;
                     display: ${isCollapsed ? 'none' : 'block'};
                 }
+                .lock-btn {
+                    position: absolute;
+                    top: 5px;
+                    right: 5px;
+                    z-index: 20;
+                    font-size: 0.8rem;
+                    color: #64748b;
+                    cursor: pointer;
+                    background: rgba(0,0,0,0.5);
+                    border-radius: 4px;
+                    padding: 2px;
+                    transition: color 0.2s, transform 0.2s;
+                }
+                .lock-btn:hover {
+                    color: #a855f7;
+                    transform: scale(1.1);
+                }
+                .lock-btn.active {
+                    color: #f59e0b;
+                }
+                .locked-input {
+                    opacity: 0.7;
+                    filter: saturate(0.5);
+                    pointer-events: none; /* Optional: allow clicking but maybe not typing? Let's stay simple. */
+                }
+                .locked-input::part(base) {
+                    border-color: #f59e0b !important;
+                }
             </style>
 
             <div class="cartridge" id="main-cartridge">

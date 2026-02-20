@@ -58,7 +58,7 @@ class QpLibrary extends HTMLElement {
             generators: {
                 label: "Generators (AI)",
                 icon: "magic",
-                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-flux-klein", "qp-render-sd35turbo", "qp-sprite", "qp-render-zimage", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager", "qp-controlnet"]
+                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-flux-klein", "qp-render-sd35turbo", "qp-sprite", "qp-render-zimage", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager", "qp-controlnet", "qp-video"]
             },
             audio: {
                 label: "Generators (Audio)",

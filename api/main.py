@@ -13,7 +13,7 @@ from watchfiles import awatch
 from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
     RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest, DepthRequest, NormalRequest,
-    AudioGenerationRequest, SpriteRequest
+    AudioGenerationRequest, SpriteRequest, VideoGenerationRequest
 )
 from api.framework import QpytUI
 from core.config import config
@@ -110,6 +110,28 @@ app_ui.add_brick("qp-prompt")
 app_ui.add_brick("qp-settings")
 app_ui.add_brick("qp-render-sdxl")
 
+# ... (middle code unchanged)
+
+@app.post("/generate/video", response_model=ImageGenerationResponse)
+async def generate_video(request: VideoGenerationRequest):
+    logger.info(f"Adding video generation to queue: {request.prompt}")
+    queue_mgr = QueueManager.get_instance()
+    
+    task_id = await queue_mgr.add_task(
+        "video",
+        task_video_wrapper,
+        prompt=request.prompt,
+        model_name=request.model_name,
+        num_frames=request.num_frames,
+        fps=request.fps,
+        num_inference_steps=request.num_inference_steps,
+        guidance_scale=request.guidance_scale,
+        seed=request.seed,
+        low_vram=request.low_vram
+    )
+    
+    return JSONResponse(status_code=202, content={"status": "queued", "task_id": task_id})
+
 # CORS for frontend
 app.add_middleware(
     CORSMiddleware,
@@ -118,9 +140,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static folders mount
-# /view -> config.OUTPUT_DIR
-app.mount("/view", StaticFiles(directory=config.OUTPUT_DIR), name="outputs")
+# /outputs -> config.OUTPUT_DIR
+app.mount("/outputs", StaticFiles(directory=config.OUTPUT_DIR), name="outputs")
 # /static -> web/
 app.mount("/static", StaticFiles(directory="web"), name="web")
 
@@ -434,7 +455,7 @@ async def task_generate_wrapper(**kwargs):
         logger.error(f"Failed to log generation: {log_err}")
     
     return {
-        "image_url": f"/view/{image_url}",
+        "image_url": f"/outputs/{image_url}",
         "execution_time": exec_time,
         "metadata": used_params,
         "warnings": used_params.get("lora_warnings", []),
@@ -453,9 +474,44 @@ async def task_upscale_wrapper(**kwargs):
         **kwargs
     )
     return {
-        "image_url": f"/view/{image_url}",
+        "image_url": f"/outputs/{image_url}",
         "execution_time": exec_time,
         "metadata": used_params
+    }
+
+async def task_video_wrapper(**kwargs):
+    from core.video_manager import CogVideoManager
+    start_time = time.time()
+    
+    # We use run_in_threadpool because CogVideo generation is blocking
+    result = await run_in_threadpool(
+        CogVideoManager.generate,
+        **kwargs
+    )
+    
+    end_time = time.time()
+    from datetime import datetime
+    day_str = datetime.now().strftime("%Y_%m_%d")
+    
+    video_filename = result['video_url']
+    thumb_filename = result['thumbnail_url']
+    
+    video_url = f"/outputs/{day_str}/{video_filename}"
+    thumb_url = f"/outputs/{day_str}/{thumb_filename}" if thumb_filename else None
+    
+    try:
+        from core.config import config
+        output_dir = Path(config.OUTPUT_DIR) / day_str
+        HistoryLogManager.add_to_log(output_dir, video_filename, result['metadata'], end_time - start_time)
+    except Exception as log_err:
+        logger.error(f"Failed to log video generation: {log_err}")
+
+    return {
+        "image_url": video_url,
+        "thumbnail_url": thumb_url,
+        "execution_time": end_time - start_time,
+        "metadata": result["metadata"],
+        "status": "success"
     }
 
 # --- Endpoints Refactored to use Queue ---
@@ -598,7 +654,7 @@ async def rembg(request: RembgRequest):
         start_time = time.time()
         image_url = await run_in_threadpool(remove_background, image_input=image_input)
         return {
-            "image_url": f"/view/{image_url}",
+            "image_url": f"/outputs/{image_url}",
             "execution_time": time.time() - start_time
         }
 
@@ -621,7 +677,7 @@ async def depth(request: DepthRequest):
         start_time = time.time()
         image_url = await run_in_threadpool(infer_depth, image_input=image_input)
         return {
-            "image_url": f"/view/{image_url}",
+            "image_url": f"/outputs/{image_url}",
             "execution_time": time.time() - start_time
         }
 
@@ -638,7 +694,7 @@ async def normal_map(request: NormalRequest):
         start_time = time.time()
         image_url = await run_in_threadpool(compute_normal_map, image_input, strength)
         return {
-            "image_url": f"/view/{image_url}",
+            "image_url": f"/outputs/{image_url}",
             "execution_time": time.time() - start_time
         }
 
@@ -661,7 +717,7 @@ async def generate_audio(request: AudioGenerationRequest):
         start_time = time.time()
         audio_url = await run_in_threadpool(MusicGenerator.generate, prompt, duration, guidance_scale)
         return {
-            "image_url": f"/view/{audio_url}", # Reusing 'image_url' output field for generic file path to avoid breaking frontend parsers
+            "image_url": f"/outputs/{audio_url}", # Reusing 'image_url' output field for generic file path to avoid breaking frontend parsers
             "execution_time": time.time() - start_time,
             "metadata": {"prompt": prompt, "duration": duration}
         }

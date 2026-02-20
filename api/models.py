@@ -99,3 +99,13 @@ class SpriteRequest(BaseModel):
     seed: Optional[int] = None
     model_name: Optional[str] = Field(None, description="Nom du modèle SD1.5 à utiliser")
     loras: Optional[List[Dict[str, Any]]] = Field(None, description="Liste des LoRAs")
+
+class VideoGenerationRequest(BaseModel):
+    prompt: str = Field(..., description="Description de la vidéo")
+    model_name: Optional[str] = Field("THUDM/CogVideoX-2b", description="Nom du modèle CogVideo")
+    num_frames: int = Field(49, ge=8, le=128, description="Nombre de frames")
+    fps: int = Field(8, ge=4, le=30, description="Frames par seconde")
+    num_inference_steps: int = Field(50, ge=1, le=200, description="Étapes d'inférence")
+    guidance_scale: float = Field(6.0, ge=1.0, le=20.0, description="Guidance Scale")
+    seed: Optional[int] = None
+    low_vram: bool = Field(True, description="Mode faible VRAM")

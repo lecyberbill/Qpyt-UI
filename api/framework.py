@@ -44,7 +44,8 @@ class QpytUI:
             {"id": "qp-canvas", "label": "Sketch Canvas", "type": "input", "icon": "brush"},
             {"id": "qp-queue-monitor", "label": "Job Queue Monitor", "type": "setting", "icon": "collection"},
             {"id": "qp-monitor", "label": "System Monitor", "type": "setting", "icon": "activity"},
-            {"id": "qp-batch-runner", "label": "Batch Runner", "type": "tool", "icon": "grid-3x3-gap"}
+            {"id": "qp-batch-runner", "label": "Batch Runner", "type": "tool", "icon": "grid-3x3-gap"},
+            {"id": "qp-video", "label": "CogVideo Generator", "type": "generator", "icon": "camera-reels"}
         ]
 
     def load_workflow(self, workflow_data: List[Dict[str, Any]]):
@@ -116,6 +117,7 @@ class QpytUI:
             "qp-queue-monitor": 11,
             "qp-monitor": 12,
             "qp-batch-runner": 50,
+            "qp-video": 105,
             "qp-image-out": 200,
             "qp-save-to-disk": 201,
         }
