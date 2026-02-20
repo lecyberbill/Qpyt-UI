@@ -45,7 +45,20 @@ class QpDashboard extends HTMLElement {
 
         if (dialog && img) {
             const url = typeof item === 'string' ? item : item.image_url;
-            img.src = url;
+            const isVideo = url.toLowerCase().endsWith('.mp4');
+
+            // Handle Video vs Image in Lightbox
+            const lightboxContent = this.shadowRoot.querySelector('#lightbox-content');
+            if (lightboxContent) {
+                if (isVideo) {
+                    lightboxContent.innerHTML = `<video src="${url}" controls autoplay loop style="width:100%; border-radius:8px;"></video>`;
+                } else {
+                    lightboxContent.innerHTML = `<img src="${url}" style="width:100%; border-radius:8px; margin-bottom:1rem;">`;
+                }
+            } else {
+                // Fallback for old template
+                img.src = url;
+            }
 
             if (promptArea) {
                 promptArea.textContent = (typeof item === 'object' ? (item.metadata?.prompt || item.prompt) : '') || 'No prompt info';
@@ -226,7 +239,12 @@ class QpDashboard extends HTMLElement {
                     ${this.history.map((item, idx) => `
                         <div class="history-item" data-index="${idx}">
                             <div class="thumb-container">
-                                ${item.image_url ? `<img src="${item.image_url}">` : '<sl-icon name="image" style="opacity: 0.2;"></sl-icon>'}
+                                ${item.thumbnail_url ? `<img src="${item.thumbnail_url}">` : (item.image_url ? `<img src="${item.image_url}">` : '<sl-icon name="image" style="opacity: 0.2;"></sl-icon>')}
+                                ${item.image_url?.toLowerCase().endsWith('.mp4') ? `
+                                    <div style="position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.6); border-radius: 4px; padding: 2px; display: flex;">
+                                        <sl-icon name="camera-reels" style="color: white; font-size: 0.8rem;"></sl-icon>
+                                    </div>
+                                ` : ''}
                             </div>
                             <div class="item-info">
                                 <div class="status-header">
@@ -248,7 +266,9 @@ class QpDashboard extends HTMLElement {
             </sl-drawer>
 
             <sl-dialog id="lightbox" label="Generation Details">
-                <img id="lightbox-img" src="">
+                <div id="lightbox-content">
+                    <img id="lightbox-img" src="">
+                </div>
                 <div class="prompt-display" id="lightbox-prompt"></div>
                 <div id="lightbox-meta"></div>
                 <sl-button slot="footer" variant="primary" id="close-lightbox">Close</sl-button>

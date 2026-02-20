@@ -3550,6 +3550,7 @@ class QpVideo extends HTMLElement {
                 if (dashboard) {
                     dashboard.addEntry({
                         image_url: this.lastVideoUrl,
+                        thumbnail_url: task.result.thumbnail_url,
                         status: 'success',
                         execution_time: task.result.execution_time,
                         metadata: task.result.metadata
