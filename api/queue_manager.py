@@ -125,6 +125,25 @@ class QueueManager:
                 return True
         return False
 
+    def cancel_all(self):
+        """Cancels all pending tasks and clears the queue."""
+        logger.info("[QueueManager] Cancelling all pending tasks...")
+        
+        # 1. Mark all PENDING tasks as CANCELLED
+        for task in self.tasks.values():
+            if task.status == "PENDING":
+                task.status = "CANCELLED"
+        
+        # 2. Empty the queue
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+                self.queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+        
+        logger.info("[QueueManager] All pending tasks cancelled and queue cleared.")
+
     def clear_completed(self):
         # Remove tasks that are completed, failed or cancelled to free memory
         to_remove = [tid for tid, t in self.tasks.items() if t.status in ["COMPLETED", "FAILED", "CANCELLED"]]

@@ -313,14 +313,62 @@ async def add_brick(request: Request):
     return {"status": "success", "brick_id": brick_id, "workflow": app_ui.workflow}
 
 @app.get("/models/{model_type}")
-async def get_models(model_type: str):
-    models = list_models(model_type)
-    return {"status": "success", "models": models}
+async def get_models(model_type: str, path: str = None):
+    logger.info(f"[Debug] get_models called for type={model_type}, path={path}")
+    if path:
+        # scan specific path override
+        directory = Path(path)
+        if not directory.is_absolute():
+            # Try to make it absolute relative to app base
+            directory = Path(config.base_dir) / directory
+            
+        logger.info(f"[Debug] Scanning real path: {directory}")
+        if not directory.exists():
+            logger.warning(f"[Debug] Path does not exist: {directory}")
+            return {"status": "success", "models": [], "message": f"Path '{path}' does not exist"}
+        
+        models = []
+        for ext in ['*.safetensors', '*.ckpt', '*.gguf', '*.sft']:
+             models.extend([f.name for f in directory.glob(ext)])
+        
+        result = sorted(list(set(models)))
+        logger.info(f"[Debug] Found {len(result)} models in {directory}")
+        return {"status": "success", "models": result}
+    else:
+        models = list_models(model_type)
+        logger.info(f"[Debug] Using default list_models for {model_type}, found {len(models)}")
+        return {"status": "success", "models": models}
 
 @app.post("/generate/stop")
 async def stop_generation():
     ModelManager.interrupt()
     return {"status": "success", "message": "Interruption request sent"}
+
+@app.post("/config/unload")
+async def unload_model():
+    """Force unloads the current model from VRAM."""
+    try:
+        await run_in_threadpool(ModelManager.unload_current_model)
+        return {"status": "success", "message": "Model unloaded and VRAM cleared."}
+    except Exception as e:
+        logger.error(f"Error unloading model: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/queue/stop_all")
+async def stop_all():
+    """Emergency stop: interrupts current generation and clears the queue."""
+    try:
+        # Interrupt current running task in ModelManager
+        ModelManager.interrupt()
+        
+        # Cancel all pending tasks in QueueManager
+        queue_mgr = QueueManager.get_instance()
+        queue_mgr.cancel_all()
+        
+        return {"status": "success", "message": "Emergency stop: Current task interrupted and queue cleared."}
+    except Exception as e:
+        logger.error(f"Error during emergency stop: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.get("/vaes")
 async def get_vaes():

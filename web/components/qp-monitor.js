@@ -130,6 +130,56 @@ class QpMonitor extends HTMLElement {
         }
     }
 
+    async triggerUnload() {
+        if (!confirm("Force unload model and clear VRAM? This will interrupt any current generation.")) return;
+
+        try {
+            const btn = this.shadowRoot.getElementById('btn-unload');
+            if (btn) btn.loading = true;
+
+            const res = await fetch('/config/unload', { method: 'POST' });
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                this.shadowRoot.dispatchEvent(new CustomEvent('qpyt:notification', {
+                    bubbles: true,
+                    composed: true,
+                    detail: { message: data.message, variant: 'success' }
+                }));
+            }
+        } catch (e) {
+            console.error("Unload failed", e);
+        } finally {
+            const btn = this.shadowRoot.getElementById('btn-unload');
+            if (btn) btn.loading = false;
+        }
+    }
+
+    async triggerEmergencyStop() {
+        if (!confirm("EMERGENCY STOP: Interrupt current task and clear all pending tasks in queue?")) return;
+
+        try {
+            const btn = this.shadowRoot.getElementById('btn-stop-all');
+            if (btn) btn.loading = true;
+
+            const res = await fetch('/queue/stop_all', { method: 'POST' });
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                this.shadowRoot.dispatchEvent(new CustomEvent('qpyt:notification', {
+                    bubbles: true,
+                    composed: true,
+                    detail: { message: data.message, variant: 'danger' }
+                }));
+            }
+        } catch (e) {
+            console.error("Stop all failed", e);
+        } finally {
+            const btn = this.shadowRoot.getElementById('btn-stop-all');
+            if (btn) btn.loading = false;
+        }
+    }
+
     render() {
         const brickId = this.getAttribute('brick-id') || '';
         this.shadowRoot.innerHTML = `
@@ -199,8 +249,21 @@ class QpMonitor extends HTMLElement {
                     font-style: italic;
                     font-size: 0.8rem;
                 }
+                .actions {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    margin-top: 5px;
+                }
                 sl-button {
                     width: 100%;
+                }
+                .btn-danger::part(base) {
+                    color: #ef4444;
+                    border-color: #ef4444;
+                }
+                .btn-danger:hover::part(base) {
+                    background-color: rgba(239, 68, 68, 0.1);
                 }
             </style>
             <qp-cartridge title="System Monitor" icon="activity" type="setting" brick-id="${brickId}">
@@ -208,17 +271,35 @@ class QpMonitor extends HTMLElement {
                     <div class="gauges-row">Checking stats...</div>
                     <div class="gpu-list"></div>
                     
-                    <sl-button id="btn-refresh" size="small" variant="default" outline>
-                        <sl-icon slot="prefix" name="arrow-clockwise"></sl-icon>
-                        Refresh Models List
-                    </sl-button>
+                    <div class="actions">
+                        <sl-button id="btn-refresh" size="small" variant="default" outline title="Reload model list from disk">
+                            <sl-icon slot="prefix" name="arrow-clockwise"></sl-icon>
+                            Refresh Models List
+                        </sl-button>
+
+                        <sl-button id="btn-unload" size="small" variant="default" outline title="Force release VRAM by unloading current model">
+                            <sl-icon slot="prefix" name="trash"></sl-icon>
+                            Force Unload Model
+                        </sl-button>
+
+                        <sl-button id="btn-stop-all" size="small" variant="neutral" outline class="btn-danger" title="Interrupt current task & clear entire queue">
+                            <sl-icon slot="prefix" name="stop-circle"></sl-icon>
+                            Emergency Stop (Queue)
+                        </sl-button>
+                    </div>
                 </div>
             </qp-cartridge>
         `;
 
         setTimeout(() => {
-            const btn = this.shadowRoot.getElementById('btn-refresh');
-            if (btn) btn.addEventListener('click', () => this.triggerModelRefresh());
+            const btnRefresh = this.shadowRoot.getElementById('btn-refresh');
+            if (btnRefresh) btnRefresh.addEventListener('click', () => this.triggerModelRefresh());
+
+            const btnUnload = this.shadowRoot.getElementById('btn-unload');
+            if (btnUnload) btnUnload.addEventListener('click', () => this.triggerUnload());
+
+            const btnStop = this.shadowRoot.getElementById('btn-stop-all');
+            if (btnStop) btnStop.addEventListener('click', () => this.triggerEmergencyStop());
         }, 0);
     }
 }

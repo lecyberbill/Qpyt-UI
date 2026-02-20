@@ -564,26 +564,67 @@ class ModelManager:
                             
                         print(f"  -> Detected architecture: {num_double} double blocks, {num_single} single blocks")
                         
-                        # If it's a Flux 2 / Klein model, we use dedicated Flux 2 classes
-                        if num_double == 5 and num_single == 20:
-                            print("  -> Detecting Flux.2 Klein 4B architecture. Switching to Flux2Pipeline.")
+                        # CLEANUP: Filter out scalar tensors (like .weight_scale) that crash the diffusers converter
+                        # and ensure everything is at least bfloat16 for the conversion steps.
+                        print("  -> Cleaning state_dict and detecting dimensions...")
+                        scalar_keys = [k for k, v in state_dict.items() if v.dim() == 0]
+                        if scalar_keys:
+                            print(f"     -> Removing {len(scalar_keys)} scalar/scale tensors to avoid converter crash.")
+                            for k in scalar_keys: del state_dict[k]
+                        
+                        # Flux 2 support based on transformer block structure
+                        if num_double > 0 and num_single > 0:
+                            print(f"  -> Flux.2 architecture detected ({num_double}d/{num_single}s). Configuring Flux2Pipeline...")
                             pipeline_class = Flux2Pipeline
                             
+                            # Detect architectural dimensions
+                            # 1. hidden_size from x_embedder or img_in
+                            # 2. joint_attention_dim from context_embedder or txt_in
+                            hidden_size = 3072 # Default for 4B
+                            joint_attention_dim = 7680 # Default for 4B
+                            
+                            if "x_embedder.weight" in state_dict:
+                                hidden_size = state_dict["x_embedder.weight"].shape[0]
+                            elif "img_in.weight" in state_dict:
+                                hidden_size = state_dict["img_in.weight"].shape[0]
+
+                            if "context_embedder.weight" in state_dict:
+                                joint_attention_dim = state_dict["context_embedder.weight"].shape[0]
+                            elif "txt_in.weight" in state_dict:
+                                # In some checkpoints, txt_in is [hidden, joint]
+                                shape = state_dict["txt_in.weight"].shape
+                                if len(shape) >= 2:
+                                    # If it's square, it's likely [hidden, joint] where hidden==joint
+                                    # If it's [3072, 7680], then joint is 7680.
+                                    joint_attention_dim = shape[1]
+                            
+                            num_attention_heads = hidden_size // 128
+                            print(f"  -> Detected dimensions: hidden={hidden_size}, joint={joint_attention_dim}, heads={num_attention_heads}")
+
                             # Standard Flux.2 config
                             transformer_config = {
-                                "num_layers": 5,
-                                "num_single_layers": 20,
+                                "num_layers": num_double,
+                                "num_single_layers": num_single,
                                 "patch_size": 1,
                                 "in_channels": 128, # Standard Flux 2 default
                                 "out_channels": None,
-                                "num_attention_heads": 24, 
+                                "num_attention_heads": num_attention_heads, 
                                 "attention_head_dim": 128,
-                                "joint_attention_dim": 7680, # Mistral hidden size
+                                "joint_attention_dim": joint_attention_dim,
                                 "mlp_ratio": 3.0, # Flux 2 uses SwiGLU with 3.0 mult
                                 "axes_dims_rope": [32, 32, 32, 32],
                                 "rope_theta": 2000,
                                 "timestep_guidance_channels": 256,
                             }
+                            
+                            # IMPORTANT: Cast state_dict to bfloat16 before conversion if it's in FP8
+                            # diffusers' convert functions might not handle FP8 chunking/concatenation correctly
+                            # or might produce invalid dtypes in the resulting dictionary.
+                            needs_cast = any(v.dtype == torch.float8_e4m3fn for v in state_dict.values())
+                            if needs_cast:
+                                print("  -> Casting FP8 state_dict to bfloat16 for robust conversion...")
+                                state_dict = {k: v.to(dtype=torch.bfloat16) for k, v in state_dict.items()}
+
                             transformer = Flux2Transformer2DModel(**transformer_config).to(dtype=torch.bfloat16)
                             
                             from diffusers.loaders.single_file_utils import convert_flux2_transformer_checkpoint_to_diffusers

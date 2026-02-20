@@ -175,66 +175,156 @@ class QpytApp {
         }
     }
 
+    async updateModelSelectors(type = 'all', pathOverride = null) {
+        // Fetch current lists for SDXL and Flux
+        const sdxlPath = (type === 'sdxl' || type === 'all') ? (pathOverride || document.getElementById('cfg-models-dir')?.value || this.settings.MODELS_DIR) : null;
+        const fluxPath = (type === 'flux' || type === 'all') ? (pathOverride || document.getElementById('cfg-flux-models-dir')?.value || this.settings.FLUX_MODELS_DIR) : null;
+
+        const updateOne = async (modelType, path, selectId, settingKey) => {
+            const select = document.getElementById(selectId);
+            if (!select || !path) return;
+
+            try {
+                const res = await fetch(`/models/${modelType}?path=${encodeURIComponent(path)}`);
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    // Update options
+                    select.innerHTML = data.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('');
+
+                    // Force a small delay to let Shoelace register the new options
+                    requestAnimationFrame(() => {
+                        const currentValue = this.settings[settingKey];
+                        if (data.models.includes(currentValue)) {
+                            select.value = currentValue;
+                        }
+                    });
+                    // Optional: select first one if nothing selected? No, stay neutral.
+                    // This condition was originally an `else if` but is now separate due to the requestAnimationFrame.
+                    // If the above `requestAnimationFrame` didn't set a value, this might still apply.
+                    // However, the user's provided snippet removed the `else` and placed it outside the `if (data.status === 'success')` block.
+                    // To maintain syntactic correctness and the spirit of the change, I'm placing it here as a separate check.
+                    if (data.models.length > 0 && !select.value) {
+                        // No action, as per original comment.
+                    }
+                }
+            } catch (e) {
+                console.error(`Failed to scan ${modelType} at ${path}`, e);
+            }
+        };
+
+        if (type === 'all' || type === 'sdxl') await updateOne('sdxl', sdxlPath, 'cfg-default-model', 'DEFAULT_MODEL');
+        if (type === 'all' || type === 'flux') await updateOne('flux', fluxPath, 'cfg-default-flux-model', 'DEFAULT_FLUX_MODEL');
+    }
+
     setupSettings() {
         const trigger = document.getElementById('settings-trigger');
         const drawer = document.getElementById('settings-drawer');
         const saveBtn = document.getElementById('cfg-save-btn');
-        const closeBtn = document.getElementById('cfg-close-btn');
+        const jsonSaveBtn = document.getElementById('cfg-json-save-btn');
+        const jsonEditor = document.getElementById('cfg-json-editor');
 
         if (!trigger || !drawer) return;
 
-        // Populate fields
-        const fields = {
-            'cfg-models-dir': this.settings.MODELS_DIR,
-            'cfg-flux-models-dir': this.settings.FLUX_MODELS_DIR,
-            'cfg-loras-dir': this.settings.LORAS_DIR,
-            'cfg-output-dir': this.settings.OUTPUT_DIR,
-            'cfg-default-model': this.settings.DEFAULT_MODEL
+        // Path inputs
+        const sdxlInput = document.getElementById('cfg-models-dir');
+        const fluxInput = document.getElementById('cfg-flux-models-dir');
+        const loraInput = document.getElementById('cfg-loras-dir');
+        const outputInput = document.getElementById('cfg-output-dir');
+
+        // Scan buttons
+        const scanSdxlBtn = document.getElementById('btn-scan-sdxl');
+        const scanFluxBtn = document.getElementById('btn-scan-flux');
+
+        // Initial population of path fields
+        const populatePaths = () => {
+            if (sdxlInput) sdxlInput.value = this.settings.MODELS_DIR || '';
+            if (fluxInput) fluxInput.value = this.settings.FLUX_MODELS_DIR || '';
+            if (loraInput) loraInput.value = this.settings.LORAS_DIR || '';
+            if (outputInput) outputInput.value = this.settings.OUTPUT_DIR || '';
+
+            if (jsonEditor) jsonEditor.value = JSON.stringify(this.settings, null, 4);
         };
 
-        Object.entries(fields).forEach(([id, value]) => {
-            const el = document.getElementById(id);
-            if (el) el.value = value || '';
+        populatePaths();
+
+        trigger.addEventListener('click', async () => {
+            if (drawer.open) {
+                drawer.hide();
+            } else {
+                populatePaths();
+                await this.updateModelSelectors('all');
+                drawer.show();
+            }
         });
 
-        trigger.addEventListener('click', () => {
-            if (drawer.open) drawer.hide();
-            else drawer.show();
+        // Manual Scan buttons
+        scanSdxlBtn?.addEventListener('click', async () => {
+            scanSdxlBtn.loading = true;
+            await this.updateModelSelectors('sdxl', sdxlInput.value);
+            scanSdxlBtn.loading = false;
         });
-        closeBtn?.addEventListener('click', () => drawer.hide());
+        scanFluxBtn?.addEventListener('click', async () => {
+            scanFluxBtn.loading = true;
+            await this.updateModelSelectors('flux', fluxInput.value);
+            scanFluxBtn.loading = false;
+        });
 
+        // Live Scan on input change (also triggered on Enter)
+        sdxlInput?.addEventListener('sl-change', () => this.updateModelSelectors('sdxl', sdxlInput.value));
+        fluxInput?.addEventListener('sl-change', () => this.updateModelSelectors('flux', fluxInput.value));
+
+        // Basic settings save
         saveBtn?.addEventListener('click', async () => {
             const newData = {
                 ...this.settings,
-                MODELS_DIR: document.getElementById('cfg-models-dir').value,
-                FLUX_MODELS_DIR: document.getElementById('cfg-flux-models-dir').value,
-                LORAS_DIR: document.getElementById('cfg-loras-dir').value,
-                OUTPUT_DIR: document.getElementById('cfg-output-dir').value,
-                DEFAULT_MODEL: document.getElementById('cfg-default-model').value
+                MODELS_DIR: sdxlInput.value,
+                FLUX_MODELS_DIR: fluxInput.value,
+                LORAS_DIR: loraInput.value,
+                OUTPUT_DIR: outputInput.value,
+                DEFAULT_MODEL: document.getElementById('cfg-default-model').value,
+                DEFAULT_FLUX_MODEL: document.getElementById('cfg-default-flux-model').value
             };
+            await this.saveConfiguration(newData, saveBtn);
+        });
 
+        // JSON Advanced save
+        jsonSaveBtn?.addEventListener('click', async () => {
             try {
-                saveBtn.loading = true;
-                const response = await fetch('/config/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newData)
-                });
-                const result = await response.json();
-                if (result.status === 'success') {
-                    this.notify("Configuration saved!", "success");
-                    this.settings = newData;
-                    drawer.hide();
-                    // Optional: refresh page or re-init if paths changed drastically
-                } else {
-                    this.notify(`Error: ${result.message}`, "danger");
-                }
+                const newData = JSON.parse(jsonEditor.value);
+                await this.saveConfiguration(newData, jsonSaveBtn);
             } catch (e) {
-                this.notify("Save error", "danger");
-            } finally {
-                saveBtn.loading = false;
+                this.notify("Invalid JSON syntax: " + e.message, "danger");
             }
         });
+    }
+
+    async saveConfiguration(newData, btnEl) {
+        try {
+            if (btnEl) btnEl.loading = true;
+            const response = await fetch('/config/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newData)
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.notify("Configuration updated successfully!", "success");
+                this.settings = newData;
+                // Sync UI
+                if (document.getElementById('cfg-json-editor')) {
+                    document.getElementById('cfg-json-editor').value = JSON.stringify(newData, null, 4);
+                }
+                // Update selectors from the new saved state
+                await this.updateModelSelectors('all');
+            } else {
+                this.notify(`Error: ${result.message}`, "danger");
+            }
+        } catch (e) {
+            this.notify("Save error", "danger");
+        } finally {
+            if (btnEl) btnEl.loading = false;
+        }
     }
 
     getCurrentWorkflowState() {

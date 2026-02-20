@@ -133,21 +133,63 @@
         </div>
     </sl-drawer>
 
-    <sl-drawer id="settings-drawer" label="Qpyt-UI Configuration" style="--size: 400px;">
-        <div id="settings-form" style="display: flex; flex-direction: column; gap: 1.5rem;">
-            <p style="color: #64748b; font-size: 0.9rem; margin-top: 0;">Modify global application settings.
-                Changes will be saved to <code>config.local.json</code>.</p>
+    <sl-drawer id="settings-drawer" label="Qpyt-UI Configuration" style="--size: 500px;">
+        <sl-tab-group>
+            <sl-tab slot="nav" panel="basic">Basic Settings</sl-tab>
+            <sl-tab slot="nav" panel="advanced">Advanced (JSON)</sl-tab>
 
-            <sl-input id="cfg-models-dir" label="Models Folder (Checkpoints)"></sl-input>
-            <sl-input id="cfg-flux-models-dir" label="FLUX Models Folder"></sl-input>
-            <sl-input id="cfg-loras-dir" label="LoRAs Folder"></sl-input>
-            <sl-input id="cfg-output-dir" label="Outputs Folder (Images)"></sl-input>
-            <sl-input id="cfg-default-model" label="Default Model (.safetensors)"></sl-input>
+            <sl-tab-panel name="basic">
+                <div id="settings-form" style="display: flex; flex-direction: column; gap: 1.2rem; padding-top: 1rem;">
+                    <p style="color: #64748b; font-size: 0.85rem; margin-top: 0;">Paths for model scanning and image
+                        outputs.</p>
 
-            <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-                <sl-button id="cfg-save-btn" variant="primary" style="width: 100%;">Save Configuration</sl-button>
-            </div>
-        </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+                        <sl-input id="cfg-models-dir" label="SDXL Models Folder"
+                            help-text="Main models/checkpoints folder" style="flex: 1;"></sl-input>
+                        <sl-button id="btn-scan-sdxl" size="small" variant="neutral" outline
+                            title="Scan this folder for models">Scan</sl-button>
+                    </div>
+
+                    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+                        <sl-input id="cfg-flux-models-dir" label="FLUX Models Folder"
+                            help-text="Main models/flux folder" style="flex: 1;"></sl-input>
+                        <sl-button id="btn-scan-flux" size="small" variant="neutral" outline
+                            title="Scan this folder for models">Scan</sl-button>
+                    </div>
+
+                    <sl-input id="cfg-loras-dir" label="LoRAs Folder"></sl-input>
+                    <sl-input id="cfg-output-dir" label="Outputs Folder (Images)"></sl-input>
+
+                    <div
+                        style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 0.5rem; padding-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
+                        <p style="color: #64748b; font-size: 0.85rem; margin-top: 0;">Default models to load on startup.
+                        </p>
+
+                        <sl-select id="cfg-default-model" label="Default SDXL Model" help-text="Used by SDXL bricks"
+                            clearable></sl-select>
+                        <sl-select id="cfg-default-flux-model" label="Default Flux Model"
+                            help-text="Used by Flux bricks" clearable></sl-select>
+                    </div>
+
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                        <sl-button id="cfg-save-btn" variant="primary" style="width: 100%;">Save All
+                            Settings</sl-button>
+                    </div>
+                </div>
+            </sl-tab-panel>
+
+            <sl-tab-panel name="advanced">
+                <div style="display: flex; flex-direction: column; gap: 1rem; padding-top: 1rem; height: 100%;">
+                    <p style="color: #64748b; font-size: 0.85rem; margin-top: 0;">Raw <code>config.local.json</code>
+                        editor. Be careful with syntax.</p>
+                    <sl-textarea id="cfg-json-editor" resize="auto" rows="20"
+                        style="font-family: monospace; font-size: 0.8rem;"></sl-textarea>
+
+                    <sl-button id="cfg-json-save-btn" variant="primary" outline style="width: 100%;">Save JSON
+                        Changes</sl-button>
+                </div>
+            </sl-tab-panel>
+        </sl-tab-group>
     </sl-drawer>
 
     <!-- Forçage de l'autoloader -->
