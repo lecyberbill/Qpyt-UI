@@ -955,7 +955,8 @@ class QpRender extends HTMLElement {
         this.hasRendered = true;
         const titleMap = {
             'sdxl': 'SDXL Generator',
-            'flux': 'FLUX Generator',
+            'flux': 'FLUX.1 Generator',
+            'flux2': 'FLUX.2 Generator',
             'sd3': 'SD3.5 Generator',
             'sd3_5_turbo': 'SD3.5 Turbo (Lightning)',
 
@@ -1031,12 +1032,12 @@ class QpRender extends HTMLElement {
                         </div>
                         `}
 
-                        ${this.modelType === 'flux' ? `
+                        ${(this.modelType === 'flux' || this.modelType === 'flux2') ? `
                             <sl-checkbox id="low-vram-check" ${this.useLowVram ? 'checked' : ''} style="margin-top: 0.5rem;">Low VRAM / FP8 Mode</sl-checkbox>
                             <div style="font-size: 0.8rem; color: #94a3b8; margin-left: 1.7rem;">Use NF4 (HF) or FP8 (Local) quantization to save VRAM.</div>
                         ` : ''}
 
-                        ${(this.modelType !== 'flux' && this.modelType !== 'qwen') ? `
+                        ${(this.modelType !== 'flux' && this.modelType !== 'flux2' && this.modelType !== 'qwen') ? `
                         <sl-select label="Sampler" value="${this.selectedSampler}" id="sampler-select" size="small" hoist>
                             ${this.samplers.map(s => `<sl-option value="${s.replace(/ /g, '_')}">${s}</sl-option>`).join('')}
                         </sl-select>
@@ -1199,7 +1200,17 @@ class QpRender extends HTMLElement {
 }
 
 class QpRenderSdxl extends QpRender { constructor() { super('sdxl'); this.defaultSteps = 30; this.defaultGuidance = 7.0; } }
-class QpRenderFlux extends QpRender { constructor() { super('flux'); this.defaultSteps = 4; this.defaultGuidance = 1.0; } }
+class QpRenderFlux extends QpRender {
+    constructor() {
+        super('flux');
+        this.defaultSteps = 4;
+        this.defaultGuidance = 1.0;
+    }
+    connectedCallback() {
+        this.title = "FLUX.1 Generator";
+        super.connectedCallback();
+    }
+}
 // Decided to remove standard SD35 to keep only Turbo as requested
 
 customElements.define('qp-render-sdxl', QpRenderSdxl);
@@ -1207,7 +1218,7 @@ customElements.define('qp-render-flux', QpRenderFlux);
 
 class QpRenderFluxKlein extends QpRender {
     constructor() {
-        super('flux');
+        super('flux2');
         this.defaultSteps = 4;
         this.defaultGuidance = 1.0;
     }

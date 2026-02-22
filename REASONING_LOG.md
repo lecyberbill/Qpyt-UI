@@ -1,23 +1,28 @@
-# REASONING_LOG.md - [WFGY-Core 2.0]
+# REASONING LOG - Startup Debug & Flux 2 Context
 
-## Path Taken (Bridge Events)
-- **Bridge 1 (Logic Correction)**: Transition from Plan to Code for `qp-batch-runner.js`. Identified a triple-nested loop bug (Prompt > Seed > Polling) that prevented cancellation. Implemented labeled loop `mainLoop` to allow instant exit.
-- **Bridge 2 (Integration)**: Synchronizing Batch Runner events with `QpDashboard`. Switched from `qpyt-output` to `qpyt-status-update` to enable automatic history logging.
-- **Bridge 3 (Civitai Discovery)**: Implemented `qp-civitai.js` to fetch community prompts. Integrated `nsfwLevel` bitmask filters after user feedback regarding missing images.
-- **Bridge 4 (Navigation)**: Restored "Previous Page" functionality by implementing a history stack for cursors in `qp-civitai.js`.
+## Status
+- **Zone**: RISK / TRANSIT
+- **Stability Score**: 45/100 (Chaotic due to system hang)
+- **Current Anchor**: `generator.py` (Surgically cleaned, Flux 2 commented out)
 
-## Corrections Applied (Hysteresis/Phi flips)
-- **Phi Flip (Batch Runner)**: Initial attempt to stop via `targetEl.isGenerating = false` was insufficient because the Batch Runner's inner loop continued. Correction: Added `if (!this.isGenerating)` guard inside the prompt/seed loops.
-- **Hysteresis Correction (Civitai Explorer)**: Pagination UI initially lacked back-navigation. Corrected by adding a `history` array to stack previous cursors, ensuring stable state transitions across pages.
-- **UI Rebalance**: Simplified pagination buttons from "Prev/Next" text to icons-only to maintain single-line layout constraints during multi-brique library scenarios.
+## Bridge Events & Logic Path
+1. **Initial Tension**: App hang at startup after Flux 1/2 logic implementation.
+2. **Analysis**: `py_compile` and `ast.parse` were hanging on `generator.py`. Suspected non-existent imports or circular dependencies.
+3. **Grep Search**: Failed to find `Flux2Pipeline` in `.venv/Lib/site-packages/diffusers`.
+4. **Correction (Phi Flip)**: Decision to comment out Flux 2 code to restore server startup.
+5. **Hysteresis detected**: User reports Flux 2 *was* working perfectly. 
 
-## Final Stability Score: 98/100
-- **Rationale**: 
-  - [API_Integrity]: 100% (Direct integration with Civitai & Internal status events).
-  - [Logic_Flow]: 95% (Fully sequential and cancellable).
-  - [Security/Content]: 100% (Manual NSFW level controls implemented).
+## The Contradiction (Crucial for Resume)
+- **My Check**: `grep` and `hasattr` (attempted) showed Flux 2 classes missing in `diffusers`.
+- **User Truth**: Flux 2 works. 
+- **Hypothesis**: The classes might be in a different sub-package, a custom branch of `diffusers`, or my `grep` implementation in the blocked terminal was unreliable.
 
-**Traceability Block**
-- Context_Anchor: Batch Runner was broken, Civitai Explorer did not exist.
-- Delta_Delta: Resolved concurrency/cancellation tensions in Batch Runner. Resolved "Lack of Inspiration" tension with Civitai integration.
-- Residual_Risk: [SAFE] - UI and logic are convergent.
+## Plan for Resume
+- **Step 1**: Re-verify `diffusers` contents in a clean terminal.
+- **Step 2**: If classes are confirmed, uncomment Flux 2 logic in `generator.py`.
+- **Step 3**: Re-test server startup with logs.
+- **Step 4**: Investigate why `ast.parse` hung (likely filesystem lock/WatchFiles recursion, not just missing imports).
+
+## Final Metrics
+- **Resolution**: Recursive (Backtracking to Planning needed for Flux 2 verification)
+- **Residual Risk**: High (Logic currently commented out, need to restore functionality)

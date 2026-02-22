@@ -423,12 +423,7 @@ class QpytApp {
                         }
                     }, 50);
 
-                    this.notify("Module added successfully", "success");
-                } else {
-                    console.error("New brick not found in response", result);
-                    this.notify("Error: Backend did not return new brick", "danger");
                 }
-                this.notify("Module added successfully", "success");
             } else {
                 this.notify(`Error: ${result.message}`, "danger");
             }
@@ -509,74 +504,86 @@ class QpytApp {
 
             // 2. Process bricks list (Create or Reuse)
             console.log("[App] Workflow Reconciliation Started. Bricks:", bricks.length);
-            const qpElements = customElements.get ? ['q-upscaler-v3', 'qp-prompt', 'qp-render-sdxl'].map(tag => `${tag}: ${customElements.get(tag) ? 'YES' : 'NO'}`) : 'N/A';
+            const tagsToCheck = ['q-upscaler-v3', 'qp-prompt', 'qp-render-sdxl', 'qp-render-flux', 'qp-render-flux-klein', 'qp-image-out'];
+            const qpElements = customElements.get ? tagsToCheck.map(tag => `${tag}: ${customElements.get(tag) ? 'YES' : 'NO'}`) : 'N/A';
             console.log("[App] Custom Registry Check:", qpElements);
 
-            bricks.forEach(brick => {
-                if (!brick.type) return;
+            bricks.forEach((brick, index) => {
+                if (!brick || !brick.type) {
+                    console.warn(`[App] Skipping invalid brick at index ${index}`, brick);
+                    return;
+                }
 
                 let el = existingMap.get(brick.id);
 
                 if (el) {
                     existingMap.delete(brick.id); // Mark as used
                 } else {
-                    try {
-                        // CREATE: New brick
-                        // Sanitize type
-                        const safeType = brick.type.trim().toLowerCase();
-                        if (safeType !== brick.type) {
-                            console.warn(`[App] Sanitized brick type '${brick.type}' -> '${safeType}'`);
-                        }
+                    const safeType = (brick.type || "").trim().toLowerCase();
+                    const codes = safeType.split('').map(c => c.charCodeAt(0)).join(',');
 
-                        // Validate standard custom element name (roughly: a-z, digits, hyphen, must contain hyphen)
-                        if (!safeType.includes('-') || !/^[a-z][a-z0-9-]*$/.test(safeType)) {
-                            console.error(`[App] Invalid brick type detected: '${safeType}'`);
-                            // Fallback to div to prevent crash
-                            el = document.createElement('div');
-                            el.innerHTML = `<div style="color:red;padding:1em;border:1px solid red">Invalid Brick Type: ${safeType}</div>`;
-                        } else {
-                            console.log(`[App] Creating element: '${safeType}'`);
-                            try {
-                                el = document.createElement(safeType);
-                            } catch (ce_err) {
-                                console.error(`[App] document.createElement('${safeType}') failed:`, ce_err);
-                                // Fallback to div to prevent crash
-                                el = document.createElement('div');
-                                el.innerHTML = `<div style="color:red;padding:1em;border:5px solid red; background: white; z-index: 9999; position: relative;">
-                        <b>CRITICAL ERROR adding module: ${safeType}</b><br>
-                        Error: ${ce_err.name}: ${ce_err.message}<br>
-                        Please check developer console (F12) for full details.
-                    </div>`;
-                            }
-                        }
-                        if (!el) throw new Error("createElement returned null");
-                        el.setAttribute('brick-id', brick.id);
-                        // Add listeners only once on creation
-                        this.setupBrickListeners(el);
-                    } catch (e) {
-                        const charCodes = brick.type.split('').map(c => c.charCodeAt(0)).join(',');
-                        console.error(`[App] Failed to create brick '${brick.type}' (Codes: ${charCodes}):`, e);
-                        this.notify(`Critical Error: Could not render '${brick.type}'`, "danger");
-                        return;
-                    }
-                }
+                    // Validate standard custom element name
+                    const isValidTagName = safeType.includes('-') && /^[a-z][a-z0-9-]*$/.test(safeType);
 
-                // Update Properties
-                if (brick.props) {
-                    if (typeof el.setValues === 'function') {
-                        el.setValues(brick.props);
+                    if (!isValidTagName) {
+                        console.error(`[App] Illegal brick type: '${safeType}' (Codes: ${codes})`, brick);
+                        el = document.createElement('div');
+                        el.setAttribute('style', 'color:#ef4444; background:rgba(239,68,68,0.1); padding:1rem; border:1px solid #ef4444; border-radius:8px; width:200px;');
+                        el.innerHTML = `<b>Invalid Module</b><br><small>Type: ${safeType || 'EMPTY'}</small>`;
                     } else {
-                        Object.assign(el, brick.props);
+                        try {
+                            const isRegistered = !!(customElements.get && customElements.get(safeType));
+                            console.log(`[App] Mounting Module: ${safeType} (ID: ${brick.id}, Registered: ${isRegistered}, Codes: ${codes})`);
+
+                            if (isRegistered) {
+                                el = document.createElement(safeType);
+                            } else {
+                                throw new Error("Element not registered in customElements");
+                            }
+                        } catch (ce_err) {
+                            console.error(`[App] Failed to create '${safeType}':`, ce_err);
+
+                            el = document.createElement('div');
+                            el.setAttribute('style', 'color:#f59e0b; background:rgba(245,158,11,0.1); padding:1rem; border:1px solid #f59e0b; border-radius:8px; width:250px;');
+                            el.innerHTML = `
+                                <div style="font-weight:800; margin-bottom: 0.5rem;">⚠️ Creation Failed</div>
+                                <div style="font-size:0.75rem; opacity:0.8;">
+                                    Tag: <code>${safeType}</code><br>
+                                    Error: ${ce_err.name || 'Error'}: ${ce_err.message}<br>
+                                    Module may be missing or failed to load.
+                                </div>
+                            `;
+                        }
+                    }
+
+                    if (el) {
+                        el.setAttribute('brick-id', brick.id);
+                        this.setupBrickListeners(el);
                     }
                 }
 
-                // Append moves the element if it exists in the DOM, likely triggering less destructive changes
-                // than clear + re-add.
-                this.workflow.appendChild(el);
+                if (el) {
+                    // Update Properties
+                    if (brick.props) {
+                        try {
+                            if (typeof el.setValues === 'function') {
+                                el.setValues(brick.props);
+                            } else {
+                                Object.assign(el, brick.props);
+                            }
+                        } catch (propErr) {
+                            console.warn(`[App] Failed to apply props to ${brick.id}:`, propErr);
+                        }
+                    }
+                    this.workflow.appendChild(el);
+                }
             });
 
             // 3. Cleanup unused elements
-            existingMap.forEach(child => child.remove());
+            existingMap.forEach(child => {
+                console.log(`[App] Removing unused brick: ${child.getAttribute('brick-id')}`);
+                child.remove();
+            });
 
         } catch (err) {
             console.error("[Workflow] Critical error during reconciliation:", err);

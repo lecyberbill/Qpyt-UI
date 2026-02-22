@@ -71,7 +71,6 @@ class ModelManager:
     _current_model_type = None # 'sdxl', 'flux', 'sd3', 'zimage'
     _current_is_img2img = False
     _current_is_inpaint = False
-    _current_is_inpaint = False
     _current_has_controlnet = False # Track if current pipe has ControlNet
     _current_controlnet_name = None # Track specific ControlNet model
     _current_dtype = torch.float16
@@ -463,6 +462,7 @@ class ModelManager:
                             base_pipes = {
                                 'sdxl': (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline),
                                 'flux': (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline),
+                                'flux2': (Flux2Pipeline, FluxImg2ImgPipeline, FluxInpaintPipeline),
                                 'sd3': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline),
                                 'sd3_5_turbo': (StableDiffusion3Pipeline, StableDiffusion3Img2ImgPipeline, StableDiffusion3InpaintPipeline),
                                 'zimage': (ZImagePipeline, None, None)
@@ -568,14 +568,14 @@ class ModelManager:
             is_quantized = False
             
             # Model selection based on type
-            if model_type == 'flux':
+            if model_type in ['flux', 'flux2']:
                 cls._current_dtype = torch.bfloat16
                 if is_inpaint:
                     pipeline_class = FluxInpaintPipeline
                 elif is_img2img:
                     pipeline_class = FluxImg2ImgPipeline
                 else:
-                    pipeline_class = FluxPipeline
+                    pipeline_class = FluxPipeline if model_type == 'flux' else Flux2Pipeline
                 
                 # Check for single file
                 if model_path.lower().endswith((".safetensors", ".ckpt", ".sft")):
@@ -621,7 +621,10 @@ class ModelManager:
                             for k in scalar_keys: del state_dict[k]
                         
                         # Flux 2 support based on transformer block structure
-                        if num_double > 0 and num_single > 0:
+                        # STRICT DETECTION: Flux 1 is 19d/38s. Flux 2 Klein is 5d/20s.
+                        is_actually_flux2 = (num_double > 0 and num_single > 0) and not (num_double == 19 and num_single == 38)
+                        
+                        if is_actually_flux2:
                             print(f"  -> Flux.2 architecture detected ({num_double}d/{num_single}s). Configuring Flux2Pipeline...")
                             pipeline_class = Flux2Pipeline
                             
@@ -666,8 +669,6 @@ class ModelManager:
                             }
                             
                             # IMPORTANT: Cast state_dict to bfloat16 before conversion if it's in FP8
-                            # diffusers' convert functions might not handle FP8 chunking/concatenation correctly
-                            # or might produce invalid dtypes in the resulting dictionary.
                             needs_cast = any(v.dtype == torch.float8_e4m3fn for v in state_dict.values())
                             if needs_cast:
                                 print("  -> Casting FP8 state_dict to bfloat16 for robust conversion...")
@@ -682,7 +683,6 @@ class ModelManager:
                             diff_dict = convert_flux2_transformer_checkpoint_to_diffusers(state_dict)
                             
                             # Manual Fixup for keys that often fail or are named differently in single-file checkpoints
-                            # Flux 2 Klein specific remapping
                             manual_map = {
                                 "img_in.weight": "x_embedder.weight",
                                 "img_in.bias": "x_embedder.bias",
@@ -702,7 +702,6 @@ class ModelManager:
                                 if src in state_dict and dst not in diff_dict:
                                     diff_dict[dst] = state_dict.pop(src)
                                 elif src in diff_dict and src != dst:
-                                    # Sometimes the converter partially maps it, clean it up
                                     diff_dict[dst] = diff_dict.pop(src)
 
                             # Handle dimension mismatches in converted dict (outliers)
@@ -711,7 +710,7 @@ class ModelManager:
                                     target_shape = transformer.state_dict()[k].shape
                                     if v.shape != target_shape:
                                         print(f"  -> Fixing shape mismatch for {k}: {v.shape} -> {target_shape}")
-                                        pass # Outlier handled
+                                        pass
                             
                             # Zero-initialize missing keys to avoid random noise
                             model_state = transformer.state_dict()
@@ -722,11 +721,9 @@ class ModelManager:
                             
                             res = transformer.load_state_dict(diff_dict, strict=False)
                             if res.missing_keys: 
-                                print(f"  -> Missing keys ({len(res.missing_keys)}):")
-                                for mk in sorted(res.missing_keys): print(f"     - {mk}")
+                                print(f"  -> Missing keys ({len(res.missing_keys)})")
                             if res.unexpected_keys: 
-                                print(f"  -> Unexpected keys ({len(res.unexpected_keys)}):")
-                                for uk in sorted(res.unexpected_keys): print(f"     - {uk}")
+                                print(f"  -> Unexpected keys ({len(res.unexpected_keys)})")
                             
                             # Load Mistral for Flux 2
                             mistral_repo = "black-forest-labs/FLUX.2-klein-4B"
@@ -743,30 +740,26 @@ class ModelManager:
                                     trust_remote_code=True
                                 )
                             except Exception as mistral_err:
-                                print(f"  -> Text encoder load error: {mistral_err}. Falling back to default components.")
+                                print(f"  -> Text encoder load error: {mistral_err}")
                                 text_encoder = None
 
                             text_encoder_2 = T5EncoderModel.from_pretrained(t5_repo, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
                             try:
                                 print(f"  -> Loading VAE (AutoencoderKLFlux2) from {mistral_repo}...")
-                                # Flux 2 uses a specialized VAE with Batch Norm
                                 vae = AutoencoderKLFlux2.from_pretrained(mistral_repo, subfolder="vae", torch_dtype=torch.bfloat16)
                             except Exception as vae_err:
                                 print(f"  -> AutoencoderKLFlux2 failed: {vae_err}. Falling back to Schnell VAE.")
                                 vae = AutoencoderKL.from_pretrained(t5_repo, subfolder="vae", torch_dtype=torch.bfloat16)
 
-                            # Patch format_input to avoid TypeError in certain tokenizers
+                            # Patch format_input
                             import diffusers.pipelines.flux2.pipeline_flux2 as flux2_pipe
                             def patched_format_input(prompts, system_message=flux2_pipe.SYSTEM_MESSAGE, images=None):
                                 cleaned_txt = [p.replace("[IMG]", "") for p in prompts]
                                 return [[{"role": "system", "content": system_message}, {"role": "user", "content": p}] for p in cleaned_txt]
                             
-                            print("  -> Patching Flux 2 format_input for tokenizer compatibility...")
                             flux2_pipe.format_input = patched_format_input
 
-                            # Flux 2 Pipeline expects a single Processor/Tokenizer
                             from transformers import AutoTokenizer
-                            print(f"  -> Loading tokenizer from {mistral_repo}...")
                             tokenizer = AutoTokenizer.from_pretrained(mistral_repo, subfolder="tokenizer")
 
                             print(f"  -> Assembling {pipeline_class.__name__}...")
@@ -802,7 +795,7 @@ class ModelManager:
                                 text_encoder_2=text_encoder_2,
                                 torch_dtype=torch.bfloat16
                             )
-                        
+
                     except Exception as e:
                         print(f"[Flux Load Error] Hybrid loading failed: {e}")
                         if pipeline_class == Flux2Pipeline:
@@ -1105,8 +1098,8 @@ class ModelManager:
                 print(f"Enabling Model CPU Offload for Quantized {model_type}...")
                 cls._pipeline.enable_model_cpu_offload()
             else:
-                if model_type == 'flux':
-                    print("Enabling Sequential CPU Offload for Flux...")
+                if model_type in ['flux', 'flux2']:
+                    print(f"Enabling Sequential CPU Offload for {model_type}...")
                     cls._pipeline.enable_sequential_cpu_offload()
 
                 elif vram_gb >= 10:
@@ -1217,7 +1210,7 @@ class ModelManager:
             vae_name = None
  
         # Model selection based on type
-        if model_type == 'flux':
+        if model_type in ['flux', 'flux2']:
             m_name = model_name or config.get('DEFAULT_FLUX_MODEL', 'flux1-schnell.safetensors')
             model_path = os.path.join(config.get('FLUX_MODELS_DIR', ''), m_name)
         elif model_type in ['sd3', 'sd3_5_turbo']:
@@ -1316,7 +1309,7 @@ class ModelManager:
         
         # Auto-adjust guidance for Flux 2 Klein distilled
         # It usually requires guidance_scale=1.0. If user has it high, it causes noise.
-        if model_type == 'flux' and guidance_scale > 1.5:
+        if model_type in ['flux', 'flux2'] and guidance_scale > 1.5:
              # Check if we are using the distilled Klein (4 steps usually means distilled)
              if num_inference_steps <= 8:
                  print(f"[Caution] Detected potential Flux 2 Distilled model with high guidance ({guidance_scale}). Auto-adjusting to 1.0 to avoid noise.")
@@ -1545,7 +1538,10 @@ class ModelManager:
                 else:
                     print("[IP-Adapter] CRITICAL: Projection layers missing despite load attempt. Skipping IP-Adapter to avoid crash.")
                     if hasattr(active_pipe, "set_ip_adapter_scale"):
-                        active_pipe.set_ip_adapter_scale(0.0)
+                        try:
+                            active_pipe.set_ip_adapter_scale(0.0)
+                        except:
+                            pass
                 
                 # Re-apply optimization
                 # If IP-Adapter is active, we almost ALWAYS want offload on 12GB cards
@@ -1562,7 +1558,10 @@ class ModelManager:
                     active_pipe.to(config.DEVICE)
             else:
                 if hasattr(active_pipe, "set_ip_adapter_scale"):
-                    active_pipe.set_ip_adapter_scale(0.0)
+                    try:
+                        active_pipe.set_ip_adapter_scale(0.0)
+                    except:
+                        pass
         else:
             # No IP-Adapter images provided - UNLOAD if still persistent in memory
             if cls._current_has_ip_adapter and hasattr(active_pipe, "unload_ip_adapter"):
@@ -1575,7 +1574,10 @@ class ModelManager:
                 cls._current_ip_adapter_name = None
 
             if hasattr(active_pipe, "set_ip_adapter_scale"):
-                active_pipe.set_ip_adapter_scale(0.0)
+                try:
+                    active_pipe.set_ip_adapter_scale(0.0)
+                except:
+                    pass
 
         if model_type == 'sdxl' and compel:
             conditioning, pooled = compel(prompt)
@@ -1908,7 +1910,7 @@ class ModelManager:
 
 def list_models(model_type: str) -> list:
     """Lists available model files for a given type."""
-    if model_type == 'flux':
+    if model_type in ['flux', 'flux2']:
         directory = Path(config.get('FLUX_MODELS_DIR', ''))
     elif model_type in ['sd3', 'sd3_5_turbo']:
         directory = Path(config.get('SD3_MODELS_DIR', ''))
