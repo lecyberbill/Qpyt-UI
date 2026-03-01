@@ -1,4 +1,4 @@
-# Qpyt-UI V0.9.7 TURBO
+# Qpyt-UI V1.0.0 TURBO
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -9,7 +9,7 @@
 ## Overview
 Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance interaction with Stable Diffusion (SDXL, FLUX, SD3.5) and auxiliary AI models. It uses a unique "Brick" system where every UI component is a standalone Web Component powered by a dedicated Python backend service.
 
-## Key Features (V0.9)
+## Key Features (V1.0)
 
 ### 🎨 Generative Imaging
 - **Multi-Engine Support**: Seamlessly switch between **SDXL**, **FLUX.1-Schnell**, **SD 3.5 Turbo**, and **FLUX.2-Klein**.
@@ -54,6 +54,7 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 *   **Translator (GPT/Qwen)** (`qp-translator`): Auto-translate your prompt to English.
 *   **LLM Prompt Enhancer** (`qp-llm-prompter`): Use an LLM to expand a simple idea into a detailed prompt.
 *   **Image-to-Prompt** (`qp-img2prompt`): Reverse-engineer a prompt from an image (using CLIP/BLIP).
+*   **Prompt Helper** (`qp-prompt-helper`) **[NEW]**: Build complex prompts with categorized keywords and a local persistence database for your own terms.
 
 ### ⚡ Generators (AI Models)
 *The engines that create the content.*
@@ -139,6 +140,7 @@ python api/main.py
 Then open your browser at: **http://127.0.0.1:8000**
 
 ## Version History
+*   **V1.0.0**: **Prompt Helper Integration**. Added a compact, categorized keyword assistant with local persistence database, searchable chips, and direct injection into the Prompt brick. 
 *   **V0.9.9**: **FLUX.2 Klein Support**, specialized weight mapping for Alpha/SFT checkpoints, automated guidance scaling (distilled models), and Qwen2-based text encoder integration.
 *   **V0.9.8**: **ControlNet Ecosystem** (Depth, Pose), **OpenPose Editor** (Canvas), **Depth Anything V2** Integration, and Memory Leak Fixes.
 *   **V0.9.7**: **Task Queue System**, Serialized Worker, Job Monitor Brick, and Asynchronous API Refactor for VRAM stability.

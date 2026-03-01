@@ -12,6 +12,36 @@ class QpPrompt extends HTMLElement {
     connectedCallback() {
         this.render();
         this.fetchConfig();
+        // Global listener for prompt injection
+        window.addEventListener('qp-prompt-inject', (e) => {
+            if (e.detail && e.detail.keyword) {
+                this.injectKeyword(e.detail.keyword);
+            }
+        });
+    }
+
+    injectKeyword(keyword) {
+        if (this.lockedFields.has('prompt')) return;
+        const input = this.shadowRoot.querySelector('#prompt-input');
+        if (!input) return;
+
+        let current = input.value.trim();
+        // Avoid duplicates
+        const words = current.split(',').map(w => w.trim().toLowerCase());
+        if (words.includes(keyword.toLowerCase())) {
+            window.qpyt_app?.notify(`"${keyword}" already in prompt`, "info");
+            return;
+        }
+
+        if (current && !current.endsWith(',')) {
+            current += ', ';
+        } else if (current && current.endsWith(',')) {
+            current += ' ';
+        }
+
+        input.value = current + keyword;
+        input.focus();
+        window.qpyt_app?.notify(`Added: ${keyword}`, "success");
     }
 
     async fetchConfig() {
@@ -3676,4 +3706,191 @@ class QpVideo extends HTMLElement {
     }
 }
 customElements.define('qp-video', QpVideo);
+
+// Prompt Helper Cartridge
+class QpPromptHelper extends HTMLElement {
+    static get observedAttributes() { return ['brick-id']; }
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this.categories = [];
+        this.searchQuery = "";
+        this.activeCategory = null;
+    }
+
+    connectedCallback() {
+        this.fetchData();
+    }
+
+    async fetchData() {
+        try {
+            const res = await fetch('/prompt-helper');
+            const data = await res.json();
+            this.categories = data.categories || [];
+            if (this.categories.length > 0 && !this.activeCategory) {
+                this.activeCategory = this.categories[0].id;
+            }
+            this.render();
+        } catch (e) {
+            console.error("[QpPromptHelper] Failed to fetch data", e);
+        }
+    }
+
+    async addKeyword() {
+        const keyword = prompt("Enter new keyword for " + (this.activeCategory || "selected category") + ":");
+        if (!keyword) return;
+
+        try {
+            const res = await fetch('/prompt-helper/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    category_id: this.activeCategory,
+                    keyword: keyword.trim()
+                })
+            });
+            const result = await res.json();
+            if (result.status === 'success') {
+                window.qpyt_app?.notify(result.message, "success");
+                this.fetchData(); // Refresh
+            } else {
+                window.qpyt_app?.notify(result.message, "danger");
+            }
+        } catch (e) {
+            window.qpyt_app?.notify("Failed to add keyword", "danger");
+        }
+    }
+
+    inject(keyword) {
+        window.dispatchEvent(new CustomEvent('qp-prompt-inject', {
+            detail: { keyword },
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    render() {
+        const brickId = this.getAttribute('brick-id') || '';
+
+        let filteredKeywords = [];
+        if (this.searchQuery) {
+            this.categories.forEach(cat => {
+                cat.keywords.forEach(kw => {
+                    if (kw.toLowerCase().includes(this.searchQuery.toLowerCase())) {
+                        filteredKeywords.push(kw);
+                    }
+                });
+            });
+            // Unique
+            filteredKeywords = [...new Set(filteredKeywords)];
+        }
+
+        this.shadowRoot.innerHTML = `
+            <style>
+                .tabs-container { display: flex; flex-direction: column; gap: 0.5rem; height: 100%; position: relative;}
+                .keyword-grid {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 0.4rem;
+                    max-height: 250px;
+                    overflow-y: auto;
+                    padding: 4px;
+                    scrollbar-width: thin;
+                }
+                .keyword-chip {
+                    padding: 4px 10px;
+                    background: rgba(255,255,255,0.05);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 6px;
+                    font-size: 0.75rem;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    user-select: none;
+                }
+                .keyword-chip:hover {
+                    background: var(--sl-color-primary-500);
+                    border-color: var(--sl-color-primary-400);
+                    color: white;
+                    transform: translateY(-1px);
+                }
+                .empty-msg {
+                    color: #64748b;
+                    font-size: 0.8rem;
+                    text-align: center;
+                    padding: 1rem;
+                    width: 100%;
+                }
+                sl-tab-group { --indicator-color: var(--sl-color-primary-500); }
+                sl-tab::part(base) { padding: 8px 4px; font-size: 0.7rem; }
+                sl-tab-panel::part(base) { padding: 8px 0; }
+                .search-bar { margin-bottom: 0.5rem; }
+            </style>
+            <qp-cartridge title="Prompt Helper" type="input" brick-id="${brickId}">
+                <div class="tabs-container">
+                    <sl-input class="search-bar" placeholder="Rechercher..." size="small" value="${this.searchQuery}" clearable>
+                        <sl-icon name="search" slot="prefix"></sl-icon>
+                    </sl-input>
+
+                    ${this.searchQuery ? `
+                        <div style="font-size: 0.7rem; color: #64748b; margin-bottom: 0.2rem;">Résultats :</div>
+                        <div class="keyword-grid">
+                            ${filteredKeywords.map(kw => `<div class="keyword-chip">${kw}</div>`).join('')}
+                            ${filteredKeywords.length === 0 ? '<div class="empty-msg">Aucun résultat</div>' : ''}
+                        </div>
+                    ` : `
+                        <sl-tab-group size="small">
+                            ${this.categories.map(cat => `
+                                <sl-tab slot="nav" panel="${cat.id}" ${this.activeCategory === cat.id ? 'active' : ''}>
+                                    <sl-icon name="${cat.icon}" style="margin-right: 2px;"></sl-icon>
+                                    ${cat.label}
+                                </sl-tab>
+                            `).join('')}
+
+                            ${this.categories.map(cat => `
+                                <sl-tab-panel name="${cat.id}">
+                                    <div class="keyword-grid">
+                                        ${cat.keywords.map(kw => `<div class="keyword-chip">${kw}</div>`).join('')}
+                                    </div>
+                                </sl-tab-panel>
+                            `).join('')}
+                        </sl-tab-group>
+                    `}
+
+                    <div style="margin-top: auto; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.8rem;">
+                        <sl-button variant="default" size="small" outline style="width: 100%;" id="add-btn">
+                            <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+                            Enrichir l'IA
+                        </sl-button>
+                    </div>
+                </div>
+            </qp-cartridge>
+        `;
+
+        const search = this.shadowRoot.querySelector('.search-bar');
+        search.addEventListener('sl-input', (e) => {
+            this.searchQuery = e.target.value;
+            this.render();
+            // Refocus after render
+            this.shadowRoot.querySelector('.search-bar').focus();
+        });
+        search.addEventListener('sl-clear', () => {
+            this.searchQuery = "";
+            this.render();
+        });
+
+        const tabGroup = this.shadowRoot.querySelector('sl-tab-group');
+        if (tabGroup) {
+            tabGroup.addEventListener('sl-tab-show', (e) => {
+                this.activeCategory = e.detail.name;
+            });
+        }
+
+        this.shadowRoot.querySelectorAll('.keyword-chip').forEach(chip => {
+            chip.addEventListener('click', () => this.inject(chip.textContent));
+        });
+
+        this.shadowRoot.getElementById('add-btn').addEventListener('click', () => this.addKeyword());
+    }
+}
+customElements.define('qp-prompt-helper', QpPromptHelper);
 

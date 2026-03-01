@@ -11,8 +11,8 @@ IF NOT EXIST ".venv\Scripts\activate.bat" (
 call .venv\Scripts\activate.bat
 
 echo [Micro-Gradio] Lancement du serveur FastAPI...
-echo Accedez a l'app sur : http://127.0.0.1:8000/
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+echo Accedez a l'app sur : http://127.0.0.1:8001/
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8001 --reload
 
 pause
 ENDLOCAL

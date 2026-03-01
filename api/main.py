@@ -955,3 +955,53 @@ async def apply_filters(req: FilterRequest):
         logger.error(f"Filter error: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
+@app.get("/prompt-helper")
+async def get_prompt_helper():
+    try:
+        path = Path("web/prompt_helper.json")
+        if path.exists():
+            import json
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {"categories": []}
+    except Exception as e:
+        logger.error(f"Error loading prompt helper data: {e}")
+        return {"categories": []}
+
+@app.post("/prompt-helper/add")
+async def add_prompt_keyword(request: Request):
+    try:
+        data = await request.json()
+        category_id = data.get("category_id")
+        keyword = data.get("keyword")
+        
+        path = Path("web/prompt_helper.json")
+        if not path.exists():
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Prompt helper data file not found."})
+            
+        import json
+        with open(path, "r", encoding="utf-8") as f:
+            ph_data = json.load(f)
+            
+        # Find category and add keyword
+        found = False
+        for cat in ph_data.get("categories", []):
+            if cat["id"] == category_id:
+                if keyword not in cat["keywords"]:
+                    cat["keywords"].append(keyword)
+                    found = True
+                    break
+                else:
+                    return {"status": "success", "message": "Keyword already exists."}
+                    
+        if not found:
+            return JSONResponse(status_code=404, content={"status": "error", "message": f"Category '{category_id}' not found."})
+            
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(ph_data, f, indent=4)
+            
+        return {"status": "success", "message": f"Keyword '{keyword}' added to '{category_id}'."}
+    except Exception as e:
+        logger.error(f"Error adding prompt keyword: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+

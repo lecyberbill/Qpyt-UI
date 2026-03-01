@@ -504,7 +504,7 @@ class QpytApp {
 
             // 2. Process bricks list (Create or Reuse)
             console.log("[App] Workflow Reconciliation Started. Bricks:", bricks.length);
-            const tagsToCheck = ['q-upscaler-v3', 'qp-prompt', 'qp-render-sdxl', 'qp-render-flux', 'qp-render-flux-klein', 'qp-image-out'];
+            const tagsToCheck = ['q-upscaler-v3', 'qp-prompt', 'qp-prompt-helper', 'qp-render-sdxl', 'qp-render-flux', 'qp-render-flux-klein', 'qp-image-out'];
             const qpElements = customElements.get ? tagsToCheck.map(tag => `${tag}: ${customElements.get(tag) ? 'YES' : 'NO'}`) : 'N/A';
             console.log("[App] Custom Registry Check:", qpElements);
 

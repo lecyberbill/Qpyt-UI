@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V0.9.9 (Flux 2 integration & Klein 4B)
+**Current Version**: V1.0.0 (Prompt Helper & Persistence)
 **Goal**: Asynchronous task orchestration, serialized worker, and real-time job monitoring.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -102,6 +102,15 @@ This document tracks architectural decisions, implemented features, and the road
 - **Qwen2-based Text Encoding**:
     - Patched the text encoding logic to correctly leverage `Qwen2` architectures (mistakenly tagged as Mistral3 in some repos), ensuring accurate prompt-to-image alignment.
 
+### Prompt Helper & Persistence (V1.0.0 Updates)
+- **Compact Prompt Helper**:
+    - Implemented `QpPromptHelper` component with categorization support (Style, Cadrage, Studio, Artiste, etc.).
+    - Added a **Global Search** and keyword discovery system.
+    - **Persistence Engine**: Created `api/main.py` endpoints for reading and writing to a local `prompt_helper.json` database.
+    - **Enrichment Module**: Users can now add their own keywords directly from the UI to enrich their local experience.
+- **Event-Driven Injection**:
+    - Refactored `QpPrompt` to listen for global `qp-prompt-inject` events, allowing seamless interaction between helper tools and the main prompt input.
+
 ## 3. Memory & Performance Strategy
 - **SDXL/Flux**: Use of `enable_model_cpu_offload()` to stay under 12GB VRAM.
 - **Lazy Loading**: Secondary models (Florence, Translator) are only loaded on demand.
@@ -143,6 +152,7 @@ This document tracks architectural decisions, implemented features, and the road
 - **V0.9.7**: Task Queue System, Serialized Worker, Job Monitor Brick, and Asynchronous API Refactor.
 - **V0.9.8**: Minor performance tweaks and Flux alignment.
 - **V0.9.9**: FLUX.2 Klein Support, manual weight mapping, and auto-guidance logic.
+- **V1.0.0**: Prompt Helper Integration, keyword persistence engine, and enrichment UI.
 
 ---
 
