@@ -9,6 +9,7 @@ from pathlib import Path
 from core.config import config
 import uuid
 from datetime import datetime
+from core.utils import load_image_from_input
 from models.depth_anything_v2.dpt import DepthAnythingV2
 
 _depth_model = None
@@ -49,14 +50,7 @@ def infer_depth(image_input: str) -> str:
     """
     try:
         # 1. Load Image
-        if image_input.startswith("/view/"):
-            rel_path = image_input.replace("/view/", "").lstrip("/")
-            full_path = Path(config.OUTPUT_DIR) / rel_path
-            pil_img = Image.open(full_path).convert("RGB")
-        else:
-            header, encoded = image_input.split(",", 1) if "," in image_input else (None, image_input)
-            image_data = base64.b64decode(encoded)
-            pil_img = Image.open(io.BytesIO(image_data)).convert("RGB")
+        pil_img = load_image_from_input(image_input, mode="RGB")
         
         # Convert to CV2/Numpy (RGB -> BGR for cv2 usually, but DPT implementation handles it? 
         # Looking at dpt.py: image2tensor does cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB)

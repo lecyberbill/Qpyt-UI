@@ -7,6 +7,7 @@ from pathlib import Path
 from core.config import config
 import uuid
 from datetime import datetime
+from core.utils import load_image_from_input
 
 def compute_normal_map(image_input: str, strength: float = 2.0) -> str:
     """
@@ -19,14 +20,7 @@ def compute_normal_map(image_input: str, strength: float = 2.0) -> str:
     """
     try:
         # 1. Load Image
-        if image_input.startswith("/view/"):
-            rel_path = image_input.replace("/view/", "").lstrip("/")
-            full_path = Path(config.OUTPUT_DIR) / rel_path
-            pil_img = Image.open(full_path).convert("L") # Convert to Grayscale
-        else:
-            header, encoded = image_input.split(",", 1) if "," in image_input else (None, image_input)
-            image_data = base64.b64decode(encoded)
-            pil_img = Image.open(io.BytesIO(image_data)).convert("L")
+        pil_img = load_image_from_input(image_input, mode="L") # Load as Grayscale
         
         # Convert to float for math
         img_np = np.array(pil_img).astype(np.float32) / 255.0

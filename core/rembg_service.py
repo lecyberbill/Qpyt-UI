@@ -8,6 +8,7 @@ from pathlib import Path
 from core.config import config
 import uuid
 from datetime import datetime
+from core.utils import load_image_from_input
 
 # Global session to allow reuse but also explicit unloading
 _rembg_session = None
@@ -38,14 +39,7 @@ def remove_background(image_input: str) -> str:
     """
     # 1. Load Image
     try:
-        if image_input.startswith("/view/"):
-            rel_path = image_input.replace("/view/", "").lstrip("/")
-            full_path = Path(config.OUTPUT_DIR) / rel_path
-            img = Image.open(full_path).convert("RGB")
-        else:
-            header, encoded = image_input.split(",", 1) if "," in image_input else (None, image_input)
-            image_data = base64.b64decode(encoded)
-            img = Image.open(io.BytesIO(image_data)).convert("RGB")
+        img = load_image_from_input(image_input, mode="RGB")
     except Exception as e:
         print(f"[REMBG] Error loading image: {e}")
         raise e
