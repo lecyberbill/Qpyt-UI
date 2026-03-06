@@ -11,8 +11,13 @@ IF NOT EXIST ".venv\Scripts\activate.bat" (
 call .venv\Scripts\activate.bat
 
 echo [Micro-Gradio] Lancement du serveur FastAPI...
-echo Accedez a l'app sur : http://127.0.0.1:8001/
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8001 --reload
+echo Accedez a l'app sur : http://127.0.0.1:8000/
+
+:: Activation des logs détaillés pour Triton / PyTorch Inductor
+set TORCH_LOGS="+dynamo,inductor"
+set TORCH_COMPILE_DEBUG=1
+
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 
 pause
 ENDLOCAL

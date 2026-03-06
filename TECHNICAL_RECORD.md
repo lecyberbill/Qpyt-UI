@@ -112,6 +112,7 @@ This document tracks architectural decisions, implemented features, and the road
     - Refactored `QpPrompt` to listen for global `qp-prompt-inject` events, allowing seamless interaction between helper tools and the main prompt input.
 
 ## 3. Memory & Performance Strategy
+- **Triton Optimization**: High-performance kernel compilation via `triton-windows` strictly requires **Python 3.13.5** and **Visual Studio Build Tools** ("Desktop development with C++" workload). Triton relies on these to compile kernels on the fly.
 - **SDXL/Flux**: Use of `enable_model_cpu_offload()` to stay under 12GB VRAM.
 - **Lazy Loading**: Secondary models (Florence, Translator) are only loaded on demand.
 - **Automatic GC**: Explicit calls to `gc.collect()` and `cuda.empty_cache()` between major task shifts.

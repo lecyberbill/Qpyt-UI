@@ -92,7 +92,8 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 
 ### 1. Prerequisites
 *   **OS**: Windows 10/11 (Linux support experimental).
-*   **Python**: Version 3.10 or newer.
+*   **Python**: Version 3.10 to 3.13.5 (Python 3.13.5 recommended for optimal performance).
+*   **Visual Studio Build Tools**: Mandatory for Windows users (must include the "Desktop development with C++" workload). This is strictly required by Triton to compile kernels on the fly.
 *   **GPU**: NVIDIA GeForce RTX 3060 or better (8GB+ VRAM) recommended for SDXL/Flux.
 *   **Git**: Required for cloning the repository.
 
