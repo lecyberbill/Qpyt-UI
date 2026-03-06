@@ -1656,12 +1656,17 @@ class ModelManager:
                 save_kwargs['pnginfo'] = metadata
             
             elif save_ext in ['jpeg', 'webp']:
-                # For JPEG and WebP, we use the EXIF UserComment tag (0x9286)
-                # Note: EXIF works for both in modern Pillow
-                exif = image_out.getexif()
-                # 0x9286 is the tag for UserComment
-                exif[0x9286] = workflow_str
-                save_kwargs['exif'] = exif
+                # [WFGY-Metadata] Logic_Zone: SAFE (<0.35) | Delta_Initial: 0.1 | Resolution: convergent
+                # For JPEG and WebP, EXIF UserComment tag (0x9286) is used.
+                # JPEG EXIF strictly limits data segments to ~65KB.
+                workflow_bytes = workflow_str.encode('utf-8')
+                if save_ext == 'jpeg' and len(workflow_bytes) > 65000:
+                    print(f"[Metadata] Warning: Workflow JSON is too large ({len(workflow_bytes)} bytes) for JPEG EXIF. Skipping metadata injection.", flush=True)
+                else:
+                    exif = image_out.getexif()
+                    # 0x9286 is the tag for UserComment
+                    exif[0x9286] = workflow_str
+                    save_kwargs['exif'] = exif
 
         image_out.save(file_path, format=save_ext.upper(), **save_kwargs)
         
