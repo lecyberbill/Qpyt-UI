@@ -3,6 +3,7 @@ class QpDashboard extends HTMLElement {
         super();
         this.attachShadow({ mode: 'open' });
         this.history = [];
+        this.hasRendered = false;
     }
 
     connectedCallback() {
@@ -26,61 +27,69 @@ class QpDashboard extends HTMLElement {
         }
 
         if (this.history.length > 20) this.history.pop();
-        this.render();
+        this.renderHistory();
     }
 
-    toggleDrawer(open) {
-        const drawer = this.shadowRoot.querySelector('sl-drawer');
-        if (drawer) {
-            if (open) drawer.show();
-            else drawer.hide();
-        }
-    }
 
     openLightbox(item) {
+        if (!item) return;
         const dialog = this.shadowRoot.querySelector('#lightbox');
         const img = this.shadowRoot.querySelector('#lightbox-img');
+        const video = this.shadowRoot.querySelector('#lightbox-video');
         const promptArea = this.shadowRoot.querySelector('#lightbox-prompt');
         const metaArea = this.shadowRoot.querySelector('#lightbox-meta');
 
-        if (dialog && img) {
+        if (dialog) {
             const url = typeof item === 'string' ? item : item.image_url;
+            if (!url) return;
+
             const isVideo = url.toLowerCase().endsWith('.mp4');
 
-            // Handle Video vs Image in Lightbox
-            const lightboxContent = this.shadowRoot.querySelector('#lightbox-content');
-            if (lightboxContent) {
-                if (isVideo) {
-                    lightboxContent.innerHTML = `<video src="${url}" controls autoplay loop style="width:100%; border-radius:8px;"></video>`;
-                } else {
-                    lightboxContent.innerHTML = `<img src="${url}" style="width:100%; border-radius:8px; margin-bottom:1rem;">`;
-                }
-            } else {
-                // Fallback for old template
-                img.src = url;
-            }
+            // Force hide if already open to reset transition/stacking
+            if (dialog.open) dialog.hide();
 
-            if (promptArea) {
-                promptArea.textContent = (typeof item === 'object' ? (item.metadata?.prompt || item.prompt) : '') || 'No prompt info';
-            }
-            if (metaArea) {
-                const m = item.metadata || {};
-                if (typeof item === 'string' || Object.keys(m).length === 0) {
-                    metaArea.innerHTML = '';
+            // Small delay to ensure clean state
+            setTimeout(() => {
+                if (isVideo) {
+                    if (video) {
+                        video.src = url;
+                        video.style.display = 'block';
+                    }
+                    if (img) img.style.display = 'none';
                 } else {
-                    metaArea.innerHTML = `
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 1rem; font-size: 0.8rem; color: #94a3b8;">
-                        <div><strong>Seed:</strong> ${m.seed || 'N/A'}</div>
-                        <div><strong>Model:</strong> ${m.model_name || 'N/A'}</div>
-                        <div><strong>Steps:</strong> ${m.num_inference_steps || 'N/A'}</div>
-                        <div><strong>Guidance:</strong> ${m.guidance_scale || 'N/A'}</div>
-                        <div><strong>Res:</strong> ${m.width}x${m.height}</div>
-                        <div><strong>Time:</strong> ${item.execution_time?.toFixed(1)}s</div>
-                    </div>
-                `;
+                    if (img) {
+                        img.src = url;
+                        img.style.display = 'block';
+                        img.src = url; // Re-assign for good measure
+                    }
+                    if (video) {
+                        video.src = '';
+                        video.style.display = 'none';
+                    }
                 }
-            }
-            dialog.show();
+
+                if (promptArea) {
+                    promptArea.textContent = (typeof item === 'object' ? (item.metadata?.prompt || item.prompt) : '') || 'No prompt info';
+                }
+
+                if (metaArea) {
+                    const m = (typeof item === 'object' ? (item.metadata || {}) : {});
+                    if (Object.keys(m).length === 0) {
+                        metaArea.style.display = 'none';
+                    } else {
+                        metaArea.style.display = 'grid';
+                        metaArea.innerHTML = `
+                            <div><strong>Seed:</strong> ${m.seed || 'N/A'}</div>
+                            <div><strong>Model:</strong> ${m.model_name || 'N/A'}</div>
+                            <div><strong>Steps:</strong> ${m.num_inference_steps || 'N/A'}</div>
+                            <div><strong>Guidance:</strong> ${m.guidance_scale || 'N/A'}</div>
+                            <div><strong>Res:</strong> ${m.width || '?'}x${m.height || '?'}</div>
+                            <div><strong>Time:</strong> ${item.execution_time ? item.execution_time.toFixed(1) + 's' : 'N/A'}</div>
+                        `;
+                    }
+                }
+                dialog.show();
+            }, 10);
         }
     }
 
@@ -216,16 +225,13 @@ class QpDashboard extends HTMLElement {
                     margin-bottom: 1rem;
                 }
 
-                .prompt-display {
-                    background: rgba(0,0,0,0.3);
-                    padding: 1rem;
-                    border-radius: 8px;
-                    border: 1px solid rgba(255,255,255,0.05);
-                    color: #e2e8f0;
-                    font-style: italic;
-                    line-height: 1.4;
-                    max-height: 150px;
-                    overflow-y: auto;
+                #lightbox-meta {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0.5rem;
+                    margin-top: 1rem;
+                    font-size: 0.8rem;
+                    color: #94a3b8;
                 }
             </style>
 
@@ -234,42 +240,15 @@ class QpDashboard extends HTMLElement {
             </button>
 
             <sl-drawer label="Generation History" placement="start">
-                <div class="history-list">
-                    ${this.history.length === 0 ? '<div style="text-align: center; color: #475569; margin-top: 2rem;">No history available</div>' : ''}
-                    ${this.history.map((item, idx) => `
-                        <div class="history-item" data-index="${idx}">
-                            <div class="thumb-container">
-                                ${item.thumbnail_url ? `<img src="${item.thumbnail_url}">` : (item.image_url ? `<img src="${item.image_url}">` : '<sl-icon name="image" style="opacity: 0.2;"></sl-icon>')}
-                                ${item.image_url?.toLowerCase().endsWith('.mp4') ? `
-                                    <div style="position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.6); border-radius: 4px; padding: 2px; display: flex;">
-                                        <sl-icon name="camera-reels" style="color: white; font-size: 0.8rem;"></sl-icon>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            <div class="item-info">
-                                <div class="status-header">
-                                    <span class="status-badge status-${item.status || 'success'}">${item.status === 'pending' ? '⏳' : item.status === 'error' ? '❌' : '✅'}</span>
-                                    <span style="font-size: 0.7rem; color: #475569;">${item.timestamp}</span>
-                                </div>
-                                <div class="prompt-text">"${item.metadata?.prompt || item.prompt || 'No prompt'}"</div>
-                                <div class="meta">
-                                    <span>${item.execution_time ? `${item.execution_time.toFixed(1)}s` : ''}</span>
-                                    <span>
-                                        ${item.metadata?.seed ? `Seed: ${item.metadata.seed}` : ''}
-                                        ${item.metadata?.width ? `[${item.metadata.width}x${item.metadata.height}]` : ''}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
+                <div id="history-container"></div>
             </sl-drawer>
 
-            <sl-dialog id="lightbox" label="Generation Details">
-                <div id="lightbox-content">
-                    <img id="lightbox-img" src="">
+            <sl-dialog id="lightbox" label="Generation Details" hoist>
+                <div id="lightbox-content" style="position: relative;">
+                    <img id="lightbox-img" src="" style="width:100%; border-radius:8px; margin-bottom:1rem; display:none;">
+                    <video id="lightbox-video" src="" controls autoplay loop style="width:100%; border-radius:8px; display:none;"></video>
                 </div>
-                <div class="prompt-display" id="lightbox-prompt"></div>
+                <div id="lightbox-prompt" style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); color: #e2e8f0; font-style: italic; line-height: 1.4; max-height: 150px; overflow-y: auto;"></div>
                 <div id="lightbox-meta"></div>
                 <sl-button slot="footer" variant="primary" id="close-lightbox">Close</sl-button>
             </sl-dialog>
@@ -281,8 +260,48 @@ class QpDashboard extends HTMLElement {
 
         this.shadowRoot.getElementById('open-dash').addEventListener('click', () => this.toggleDrawer());
 
+        this.renderHistory();
+        this.hasRendered = true;
+    }
+
+    renderHistory() {
+        const container = this.shadowRoot.getElementById('history-container');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="history-list">
+                ${this.history.length === 0 ? '<div style="text-align: center; color: #475569; margin-top: 2rem;">No history available</div>' : ''}
+                ${this.history.map((item, idx) => `
+                    <div class="history-item" data-index="${idx}">
+                        <div class="thumb-container">
+                            ${item.thumbnail_url ? `<img src="${item.thumbnail_url}">` : (item.image_url ? `<img src="${item.image_url}">` : '<sl-icon name="image" style="opacity: 0.2;"></sl-icon>')}
+                            ${item.image_url?.toLowerCase().endsWith('.mp4') ? `
+                                <div style="position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.6); border-radius: 4px; padding: 2px; display: flex;">
+                                    <sl-icon name="camera-reels" style="color: white; font-size: 0.8rem;"></sl-icon>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="item-info">
+                            <div class="status-header">
+                                <span class="status-badge status-${item.status || 'success'}">${item.status === 'pending' ? '⏳' : item.status === 'error' ? '❌' : '✅'}</span>
+                                <span style="font-size: 0.7rem; color: #475569;">${item.timestamp}</span>
+                            </div>
+                            <div class="prompt-text">"${item.metadata?.prompt || item.prompt || 'No prompt'}"</div>
+                            <div class="meta">
+                                <span>${item.execution_time ? `${item.execution_time.toFixed(1)}s` : ''}</span>
+                                <span>
+                                    ${item.metadata?.seed ? `Seed: ${item.metadata.seed}` : ''}
+                                    ${item.metadata?.width ? `[${item.metadata.width}x${item.metadata.height}]` : ''}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
         // Re-attach listeners for history items
-        this.shadowRoot.querySelectorAll('.history-item').forEach(itemCard => {
+        container.querySelectorAll('.history-item').forEach(itemCard => {
             itemCard.addEventListener('click', () => {
                 const idx = itemCard.dataset.index;
                 const data = this.history[idx];

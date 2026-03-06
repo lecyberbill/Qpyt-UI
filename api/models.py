@@ -109,3 +109,11 @@ class VideoGenerationRequest(BaseModel):
     guidance_scale: float = Field(6.0, ge=1.0, le=20.0, description="Guidance Scale")
     seed: Optional[int] = None
     low_vram: bool = Field(True, description="Mode faible VRAM")
+
+class PromptEnhanceRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, description="Prompt simple à enrichir")
+    max_new_tokens: int = Field(512, ge=16, le=2048)
+
+class PromptTranslateRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Texte à traduire (FR -> EN)")
+

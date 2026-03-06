@@ -73,6 +73,58 @@ class QpPrompt extends HTMLElement {
         }
     }
 
+    async handleMagicWand() {
+        if (this.lockedFields.has('prompt')) return;
+        const input = this.shadowRoot.querySelector('#prompt-input');
+        if (!input || !input.value.trim()) return;
+
+        try {
+            window.qpyt_audio?.play('start');
+            window.qpyt_app?.notify("✨ Enriching prompt...", "info");
+            const res = await fetch('/prompt/enhance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: input.value })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                input.value = data.prompt;
+                window.qpyt_app?.notify("✨ Prompt enriched!", "success");
+                window.qpyt_audio?.play('finish');
+            }
+        } catch (e) {
+            console.error(e);
+            window.qpyt_audio?.play('error');
+            window.qpyt_app?.notify("Magic Wand failed", "danger");
+        }
+    }
+
+    async handleTranslate() {
+        if (this.lockedFields.has('prompt')) return;
+        const input = this.shadowRoot.querySelector('#prompt-input');
+        if (!input || !input.value.trim()) return;
+
+        try {
+            window.qpyt_audio?.play('start');
+            window.qpyt_app?.notify("🌐 Translating...", "info");
+            const res = await fetch('/prompt/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: input.value })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                input.value = data.translated_text;
+                window.qpyt_app?.notify("🌐 Translated to English", "success");
+                window.qpyt_audio?.play('finish');
+            }
+        } catch (e) {
+            console.error(e);
+            window.qpyt_audio?.play('error');
+            window.qpyt_app?.notify("Translation failed", "danger");
+        }
+    }
+
     render() {
         if (this.hasRendered) return;
         this.hasRendered = true;
@@ -90,22 +142,40 @@ class QpPrompt extends HTMLElement {
                     right: 0;
                     z-index: 10;
                 }
-                .lock-btn {
-                    position: absolute;
-                    top: 5px;
-                    right: 5px;
-                    z-index: 20;
-                    font-size: 1.2rem;
+                .lock-btn, .action-btn {
+                    font-size: 1.1rem;
                     color: #64748b;
                     cursor: pointer;
                     transition: all 0.2s;
+                    background: transparent;
+                    border: none;
+                    padding: 4px;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
-                .lock-btn:hover {
+                .lock-btn:hover, .action-btn:hover {
                     color: #a855f7;
+                    background: rgba(168, 85, 247, 0.1);
                     transform: scale(1.1);
                 }
-                .lock-btn.active {
-                    color: #f59e0b;
+                .lock-btn.active { color: #f59e0b; }
+                
+                .field-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 4px;
+                }
+                .field-label {
+                    font-size: 0.85rem;
+                    font-weight: 500;
+                    color: #e2e8f0;
+                }
+                .field-actions {
+                    display: flex;
+                    gap: 2px;
                 }
                 .locked-input {
                     opacity: 0.7;
@@ -123,13 +193,29 @@ class QpPrompt extends HTMLElement {
                     </sl-tooltip>
                     
                     <div class="field-container">
-                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-prompt" title="Lock Prompt"></sl-icon-button>
-                        <sl-textarea id="prompt-input" name="prompt" label="Positive Prompt" placeholder="What do you want to see?" resize="none" style="flex-grow: 1;"></sl-textarea>
+                        <div class="field-header">
+                            <span class="field-label">Positive Prompt</span>
+                            <div class="field-actions">
+                                <sl-tooltip content="Magic Wand (AI Expand)">
+                                    <sl-icon-button class="action-btn" name="magic" id="magic-btn"></sl-icon-button>
+                                </sl-tooltip>
+                                <sl-tooltip content="Translate (FR -> EN)">
+                                    <sl-icon-button class="action-btn" name="globe" id="translate-btn"></sl-icon-button>
+                                </sl-tooltip>
+                                <sl-icon-button class="lock-btn" name="lock-open" id="lock-prompt" title="Lock Prompt"></sl-icon-button>
+                            </div>
+                        </div>
+                        <sl-textarea id="prompt-input" name="prompt" placeholder="What do you want to see?" resize="none" style="flex-grow: 1;"></sl-textarea>
                     </div>
 
                     <div class="field-container">
-                         <sl-icon-button class="lock-btn" name="lock-open" id="lock-negative" title="Lock Negative Prompt"></sl-icon-button>
-                         <sl-textarea id="negative-input" name="negative_prompt" label="Negative Prompt" value="${this.negativePrompt}" placeholder="What do you want to avoid?" resize="none" style="height: 120px;"></sl-textarea>
+                        <div class="field-header">
+                            <span class="field-label">Negative Prompt</span>
+                            <div class="field-actions">
+                                <sl-icon-button class="lock-btn" name="lock-open" id="lock-negative" title="Lock Negative Prompt"></sl-icon-button>
+                            </div>
+                        </div>
+                        <sl-textarea id="negative-input" name="negative_prompt" value="${this.negativePrompt}" placeholder="What do you want to avoid?" resize="none" style="height: 120px;"></sl-textarea>
                     </div>
 
                     <div style="margin-top: auto; color: #64748b; font-size: 0.8rem;">
@@ -171,6 +257,8 @@ class QpPrompt extends HTMLElement {
 
         this.shadowRoot.getElementById('lock-prompt').addEventListener('click', (e) => this.toggleLock('prompt', e.target));
         this.shadowRoot.getElementById('lock-negative').addEventListener('click', (e) => this.toggleLock('negative', e.target));
+        this.shadowRoot.getElementById('magic-btn').addEventListener('click', () => this.handleMagicWand());
+        this.shadowRoot.getElementById('translate-btn').addEventListener('click', () => this.handleTranslate());
 
         if (saveBtn) {
             saveBtn.addEventListener('click', () => {
@@ -398,20 +486,14 @@ class QpSettings extends HTMLElement {
         }
     }
 
-    toggleLock(field, btn) {
+    toggleLock(field) {
         if (this.lockedFields.has(field)) {
             this.lockedFields.delete(field);
-            btn.classList.remove('active');
-            btn.name = 'lock-open';
-            this.shadowRoot.querySelector(`#${field}-input`)?.classList.remove('locked-input');
-            this.shadowRoot.querySelector(`#${field}-select`)?.classList.remove('locked-input');
         } else {
             this.lockedFields.add(field);
-            btn.classList.add('active');
-            btn.name = 'lock';
-            this.shadowRoot.querySelector(`#${field}-input`)?.classList.add('locked-input');
-            this.shadowRoot.querySelector(`#${field}-select`)?.classList.add('locked-input');
         }
+        this.hasRendered = false;
+        this.render();
     }
 
     setValues(values) {
@@ -429,6 +511,8 @@ class QpSettings extends HTMLElement {
         if (values.seed !== undefined && values.seed !== "" && !this.lockedFields.has('seed')) this.seed = parseInt(values.seed);
         else if ((values.seed === "" || values.seed === null) && !this.lockedFields.has('seed')) this.seed = null;
 
+        if (values.theme) this.selectedTheme = values.theme;
+
         this.hasRendered = false;
         this.render();
     }
@@ -439,23 +523,32 @@ class QpSettings extends HTMLElement {
         const brickId = this.getAttribute('brick-id') || '';
         this.shadowRoot.innerHTML = `
             <style>
-                .field-container { position: relative; display: flex; flex-direction: column; }
+                .field-container { display: flex; flex-direction: column; gap: 4px; }
+                .field-header { 
+                    display: flex; 
+                    justify-content: space-between; 
+                    align-items: center;
+                    padding: 8px 4px 4px 4px;
+                }
+                .field-label {
+                    font-size: 0.85rem;
+                    color: #cbd5e1;
+                    font-weight: 600;
+                }
                 .lock-btn {
-                    position: absolute;
-                    top: 5px;
-                    right: 5px;
-                    z-index: 20;
                     font-size: 1.2rem;
-                    color: #64748b;
+                    color: rgba(255, 255, 255, 0.6);
                     cursor: pointer;
                     transition: all 0.2s;
+                    --sl-spacing-x-small: 0;
                 }
                 .lock-btn:hover {
-                    color: #a855f7;
+                    color: #f59e0b;
                     transform: scale(1.1);
                 }
                 .lock-btn.active {
-                    color: #f59e0b;
+                    color: #fbbf24;
+                    opacity: 1;
                 }
                 .locked-input {
                     opacity: 0.7;
@@ -465,45 +558,76 @@ class QpSettings extends HTMLElement {
                 .locked-input::part(base) {
                     border-color: #f59e0b !important;
                 }
+                /* Hide Shoelace labels as we use our own field-header */
+                sl-input::part(form-control-label), 
+                sl-select::part(form-control-label) {
+                    display: none;
+                }
             </style>
             <qp-cartridge title="Settings" type="setting" brick-id="${brickId}">
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                     
                     <div class="field-container">
-                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-format" title="Lock Dimensions"></sl-icon-button>
-                        <sl-select id="format-select" label="Image Dimensions" value="${this.selectedDimension}" hoist>
+                        <div class="field-header">
+                            <span class="field-label">Image Dimensions</span>
+                            <sl-icon-button class="lock-btn ${this.lockedFields.has('format') ? 'active' : ''}" name="${this.lockedFields.has('format') ? 'lock-fill' : 'unlock'}" id="lock-format" title="Lock Dimensions"></sl-icon-button>
+                        </div>
+                        <sl-select id="format-select" class="${this.lockedFields.has('format') ? 'locked-input' : ''}" value="${this.selectedDimension}" hoist>
                             ${this.formats.map(f => `<sl-option value="${f.dimensions}">${f.orientation}: ${f.dimensions}</sl-option>`).join('')}
                             ${!this.formats.some(f => f.dimensions === this.selectedDimension) ? `<sl-option value="${this.selectedDimension}">Custom: ${this.selectedDimension}</sl-option>` : ''}
                         </sl-select>
                     </div>
 
                     <div class="field-container">
-                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-gs"></sl-icon-button>
-                        <sl-input id="gs-input" type="number" step="0.1" label="Guidance Scale" value="${this.guidanceScale}"></sl-input>
+                        <div class="field-header">
+                            <span class="field-label">Guidance Scale</span>
+                            <sl-icon-button class="lock-btn ${this.lockedFields.has('gs') ? 'active' : ''}" name="${this.lockedFields.has('gs') ? 'lock-fill' : 'unlock'}" id="lock-gs"></sl-icon-button>
+                        </div>
+                        <sl-input id="gs-input" class="${this.lockedFields.has('gs') ? 'locked-input' : ''}" type="number" step="0.1" value="${this.guidanceScale}"></sl-input>
                     </div>
 
                     <div class="field-container">
-                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-steps"></sl-icon-button>
-                        <sl-input id="steps-input" type="number" label="Inference Steps" value="${this.inferenceSteps}"></sl-input>
+                        <div class="field-header">
+                            <span class="field-label">Inference Steps</span>
+                            <sl-icon-button class="lock-btn ${this.lockedFields.has('steps') ? 'active' : ''}" name="${this.lockedFields.has('steps') ? 'lock-fill' : 'unlock'}" id="lock-steps"></sl-icon-button>
+                        </div>
+                        <sl-input id="steps-input" class="${this.lockedFields.has('steps') ? 'locked-input' : ''}" type="number" value="${this.inferenceSteps}"></sl-input>
                     </div>
 
                     <div class="field-container">
-                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-batch"></sl-icon-button>
-                        <sl-input id="batch-input" type="number" label="Images to Generate" value="${this.batchCount}" min="1"></sl-input>
+                        <div class="field-header">
+                            <span class="field-label">Images to Generate</span>
+                            <sl-icon-button class="lock-btn ${this.lockedFields.has('batch') ? 'active' : ''}" name="${this.lockedFields.has('batch') ? 'lock-fill' : 'unlock'}" id="lock-batch"></sl-icon-button>
+                        </div>
+                        <sl-input id="batch-input" class="${this.lockedFields.has('batch') ? 'locked-input' : ''}" type="number" value="${this.batchCount}" min="1"></sl-input>
                     </div>
 
                     <div class="field-container">
-                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-seed"></sl-icon-button>
-                        <sl-input id="seed-input" type="number" label="Seed" placeholder="Random (leave empty)" value="${this.seed !== null ? this.seed : ''}"></sl-input>
+                        <div class="field-header">
+                            <span class="field-label">Seed</span>
+                            <sl-icon-button class="lock-btn ${this.lockedFields.has('seed') ? 'active' : ''}" name="${this.lockedFields.has('seed') ? 'lock-fill' : 'unlock'}" id="lock-seed"></sl-icon-button>
+                        </div>
+                        <sl-input id="seed-input" class="${this.lockedFields.has('seed') ? 'locked-input' : ''}" type="number" placeholder="Random (leave empty)" value="${this.seed !== null ? this.seed : ''}"></sl-input>
                     </div>
 
                     <div class="field-container">
-                        <sl-icon-button class="lock-btn" name="lock-open" id="lock-output-format"></sl-icon-button>
-                        <sl-select id="output-format-select" label="Output File Format" value="${this.selectedOutputFormat}" hoist>
+                        <div class="field-header">
+                            <span class="field-label">Output File Format</span>
+                            <sl-icon-button class="lock-btn ${this.lockedFields.has('output-format') ? 'active' : ''}" name="${this.lockedFields.has('output-format') ? 'lock-fill' : 'unlock'}" id="lock-output-format"></sl-icon-button>
+                        </div>
+                        <sl-select id="output-format-select" class="${this.lockedFields.has('output-format') ? 'locked-input' : ''}" value="${this.selectedOutputFormat}" hoist>
                             <sl-option value="png">PNG (Lossless / Large)</sl-option>
                             <sl-option value="jpeg">JPEG (Compressed / Small)</sl-option>
                             <sl-option value="webp">WebP (Modern / Efficient)</sl-option>
                         </sl-select>
+                    </div>
+
+                    <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
+                        <sl-select id="theme-select" label="UI Theme" value="${this.selectedTheme || 'default'}" hoist>
+                            <sl-option value="default">Classic Dark</sl-option>
+                            <sl-option value="glass">Premium Glass</sl-option>
+                        </sl-select>
+                        <sl-switch id="audio-toggle" ${window.qpyt_audio?.enabled ? 'checked' : ''}>Audio Cues</sl-switch>
                     </div>
                 </div>
             </qp-cartridge>
@@ -511,10 +635,24 @@ class QpSettings extends HTMLElement {
 
         this.shadowRoot.getElementById('format-select').addEventListener('sl-change', (e) => this.handleFormatChange(e));
         this.shadowRoot.getElementById('output-format-select').addEventListener('sl-change', (e) => this.handleOutputFormatChange(e));
+        this.shadowRoot.getElementById('theme-select').addEventListener('sl-change', (e) => {
+            const theme = e.target.value;
+            this.selectedTheme = theme;
+            document.documentElement.className = theme === 'glass' ? 'sl-theme-dark theme-glass' : 'sl-theme-dark';
+            localStorage.setItem('qpyt_theme', theme);
+
+            // Sync main preference drawer selector if it exists
+            const mainSelect = document.getElementById('cfg-theme-select');
+            if (mainSelect) mainSelect.value = theme;
+        });
+        this.shadowRoot.getElementById('audio-toggle').addEventListener('sl-change', (e) => {
+            window.qpyt_audio?.toggle(e.target.checked);
+            window.qpyt_app?.notify(e.target.checked ? "Audio Enabled" : "Audio Silenced", "neutral");
+        });
 
         // Lock events
         ['format', 'gs', 'steps', 'batch', 'seed', 'output-format'].forEach(f => {
-            this.shadowRoot.getElementById(`lock-${f}`).addEventListener('click', (e) => this.toggleLock(f, e.target));
+            this.shadowRoot.getElementById(`lock-${f}`).addEventListener('click', () => this.toggleLock(f));
         });
 
         // Bind inputs to class state
@@ -699,6 +837,7 @@ class QpRender extends HTMLElement {
                         return task.result;
                     }
                     if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+                        window.qpyt_audio?.play('error');
                         throw new Error(task.error || "Task failed or was cancelled");
                     }
                     // Wait 1s before next poll
@@ -782,6 +921,7 @@ class QpRender extends HTMLElement {
         this.isGenerating = true;
         this.hasRendered = false; // Force re-render for generating state
         this.render();
+        window.qpyt_audio?.play('start');
 
         if (this.previewInterval) clearInterval(this.previewInterval);
         this.previewInterval = setInterval(() => this.pollPreview(), 500);
@@ -857,6 +997,11 @@ class QpRender extends HTMLElement {
                 if (data.warnings && data.warnings.length > 0) {
                     data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
                 }
+
+                // Handle Email Status
+                if (data.email_status && !data.email_status.success && data.email_status.message !== "Email disabled") {
+                    window.qpyt_app.notify(`Email Notification: ${data.email_status.message}`, "warning");
+                }
             } catch (e) {
                 console.error(`[Batch ${index}] Error during generation:`, e);
                 window.qpyt_app.notify(`Generation Error: ${e.message}`, "danger");
@@ -886,6 +1031,7 @@ class QpRender extends HTMLElement {
 
             if (successCount > 0) {
                 window.qpyt_app.notify("Generation complete", "success");
+                window.qpyt_audio?.play('finish');
             }
         }
         catch (e) {
@@ -1767,6 +1913,7 @@ class QpOutpaint extends QpRender {
         this.isGenerating = true;
         this.hasRendered = false;
         this.render();
+        window.qpyt_audio?.play('start');
 
         try {
             // Prepared Payload
@@ -1811,6 +1958,11 @@ class QpOutpaint extends QpRender {
                 data.warnings.forEach(w => window.qpyt_app.notify(w, "warning"));
             }
 
+            // Handle Email Status
+            if (data.email_status && !data.email_status.success && data.email_status.message !== "Email disabled") {
+                window.qpyt_app.notify(`Email Notification: ${data.email_status.message}`, "warning");
+            }
+
             if (window.qpyt_app) window.qpyt_app.lastImage = this.lastImageUrl;
             // Signal global output
             window.dispatchEvent(new CustomEvent('qpyt-output', {
@@ -1819,6 +1971,7 @@ class QpOutpaint extends QpRender {
                 composed: true
             }));
             window.qpyt_app.notify("Outpainting complete!", "success");
+            window.qpyt_audio?.play('finish');
 
         } catch (e) {
             console.error(e);
@@ -2148,6 +2301,7 @@ class UpscalerV3 extends HTMLElement {
         if (!window.qpyt_app) return;
         this.isGenerating = true;
         this.render();
+        window.qpyt_audio?.play('start');
 
         try {
             const promptEl = document.querySelector('qp-prompt');
@@ -2181,6 +2335,11 @@ class UpscalerV3 extends HTMLElement {
                 const dashboard = document.querySelector('qp-dashboard');
                 if (dashboard) dashboard.addEntry(data);
 
+                // Handle Email Status
+                if (data.email_status && !data.email_status.success && data.email_status.message !== "Email disabled") {
+                    window.qpyt_app.notify(`Email Notification: ${data.email_status.message}`, "warning");
+                }
+
                 window.dispatchEvent(new CustomEvent('qpyt-output', {
                     detail: { url: this.lastImageUrl, brickId: this.getAttribute('brick-id') },
                     bubbles: true,
@@ -2188,6 +2347,7 @@ class UpscalerV3 extends HTMLElement {
                 }));
 
                 window.qpyt_app.notify("Upscale complete", "success");
+                window.qpyt_audio?.play('finish');
             }
         } catch (e) {
             console.error(e);

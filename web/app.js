@@ -32,6 +32,10 @@ class QpytApp {
             this.setupDragAndDrop();
             this.setupImageDrop();
 
+            // Load saved theme
+            const savedTheme = localStorage.getItem('qpyt_theme') || 'default';
+            document.documentElement.className = savedTheme === 'glass' ? 'sl-theme-dark theme-glass' : 'sl-theme-dark';
+
             console.log("Qpyt-UI initialized with config:", config);
         } catch (e) {
             console.error("Qpyt-UI failed to initialize:", e);
@@ -243,6 +247,16 @@ class QpytApp {
             if (loraInput) loraInput.value = this.settings.LORAS_DIR || '';
             if (outputInput) outputInput.value = this.settings.OUTPUT_DIR || '';
 
+            const emailToggle = document.getElementById('cfg-email-enabled');
+            if (emailToggle) {
+                emailToggle.checked = this.settings.NOTIFICATIONS?.EMAIL_ENABLED === true;
+            }
+
+            const themeSelect = document.getElementById('cfg-theme-select');
+            if (themeSelect) {
+                themeSelect.value = localStorage.getItem('qpyt_theme') || 'default';
+            }
+
             if (jsonEditor) jsonEditor.value = JSON.stringify(this.settings, null, 4);
         };
 
@@ -283,9 +297,27 @@ class QpytApp {
                 LORAS_DIR: loraInput.value,
                 OUTPUT_DIR: outputInput.value,
                 DEFAULT_MODEL: document.getElementById('cfg-default-model').value,
-                DEFAULT_FLUX_MODEL: document.getElementById('cfg-default-flux-model').value
+                DEFAULT_FLUX_MODEL: document.getElementById('cfg-default-flux-model').value,
+                THEME: document.getElementById('cfg-theme-select').value,
+                NOTIFICATIONS: {
+                    ...this.settings.NOTIFICATIONS,
+                    EMAIL_ENABLED: document.getElementById('cfg-email-enabled').checked
+                }
             };
             await this.saveConfiguration(newData, saveBtn);
+        });
+
+        // Immediate Theme Preview
+        document.getElementById('cfg-theme-select')?.addEventListener('sl-change', (e) => {
+            const theme = e.target.value;
+            document.documentElement.className = theme === 'glass' ? 'sl-theme-dark theme-glass' : 'sl-theme-dark';
+            localStorage.setItem('qpyt_theme', theme);
+
+            // Sync any existing Settings bricks
+            document.querySelectorAll('qp-settings').forEach(s => {
+                const brickSelect = s.shadowRoot?.getElementById('theme-select');
+                if (brickSelect) brickSelect.value = theme;
+            });
         });
 
         // JSON Advanced save
@@ -311,6 +343,13 @@ class QpytApp {
             if (result.status === 'success') {
                 this.notify("Configuration updated successfully!", "success");
                 this.settings = newData;
+
+                // Apply theme immediately
+                if (newData.THEME) {
+                    localStorage.setItem('qpyt_theme', newData.THEME);
+                    document.documentElement.className = newData.THEME === 'glass' ? 'sl-theme-dark theme-glass' : 'sl-theme-dark';
+                }
+
                 // Sync UI
                 if (document.getElementById('cfg-json-editor')) {
                     document.getElementById('cfg-json-editor').value = JSON.stringify(newData, null, 4);

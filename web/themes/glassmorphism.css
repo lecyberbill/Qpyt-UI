@@ -1,0 +1,84 @@
+/* 
+ * Qpyt-UI Glassmorphism Theme 
+ * Premium visual layer for V1.1
+ */
+
+.theme-glass {
+    --bg-color: #020617;
+    background: radial-gradient(circle at top right, #1e1b4b, #020617) fixed !important;
+
+    /* Cartridge variables */
+    --cartridge-bg: rgba(255, 255, 255, 0.03);
+    --cartridge-border: 1px solid rgba(255, 255, 255, 0.1);
+    --cartridge-radius: 1.2rem;
+    --cartridge-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    --cartridge-blur: blur(12px);
+    --cartridge-header-bg: rgba(255, 255, 255, 0.02);
+    --cartridge-header-hover: rgba(255, 255, 255, 0.05);
+    --cartridge-title-color: #f8fafc;
+}
+
+.theme-glass body {
+    background: transparent !important;
+}
+
+/* Glass Bricks */
+.theme-glass qp-cartridge::part(base) {
+    background: var(--cartridge-bg) !important;
+    backdrop-filter: var(--cartridge-blur) !important;
+    -webkit-backdrop-filter: var(--cartridge-blur) !important;
+    border: var(--cartridge-border) !important;
+    box-shadow: var(--cartridge-shadow) !important;
+    border-radius: var(--cartridge-radius) !important;
+}
+
+.theme-glass qp-cartridge::part(header) {
+    background: var(--cartridge-header-bg) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Glass Inputs via Shoelace tokens */
+.theme-glass {
+    --sl-input-background-color: rgba(0, 0, 0, 0.2);
+    --sl-input-border-color: rgba(255, 255, 255, 0.1);
+    --sl-input-border-radius-medium: 0.8rem;
+    --sl-input-placeholder-color: rgba(255, 255, 255, 0.3);
+}
+
+.theme-glass sl-input:focus-within::part(base),
+.theme-glass sl-textarea:focus-within::part(base) {
+    border-color: #a855f7 !important;
+    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.2) !important;
+}
+
+/* Buttons via Shoelace tokens */
+.theme-glass sl-button[variant="primary"]::part(base) {
+    background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
+    border: none !important;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4) !important;
+}
+
+/* Floating Effects & Animations */
+.theme-glass qp-cartridge {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+.theme-glass qp-cartridge:hover {
+    transform: translateY(-8px) scale(1.01) !important;
+    z-index: 10;
+}
+
+/* Header Glass */
+.theme-glass header {
+    background: rgba(2, 6, 23, 0.5) !important;
+    backdrop-filter: blur(10px) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    margin-bottom: 1rem;
+}
+
+/* Scrollbar Glass */
+.theme-glass ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: 4px solid transparent !important;
+    background-clip: padding-box !important;
+}

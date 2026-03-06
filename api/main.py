@@ -13,7 +13,8 @@ from watchfiles import awatch
 from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
     RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest, DepthRequest, NormalRequest,
-    AudioGenerationRequest, SpriteRequest, VideoGenerationRequest
+    AudioGenerationRequest, SpriteRequest, VideoGenerationRequest,
+    PromptEnhanceRequest, PromptTranslateRequest
 )
 from api.framework import QpytUI
 from core.config import config
@@ -22,6 +23,7 @@ from core.generator import list_models, ModelManager, list_vaes, list_samplers
 import core.analyzer as analyzer_lib
 from core.translator import TranslationManager
 from core.llm_prompter import LlmPrompterManager
+from core.notifier import Notifier
 from core.filters import ImageEditor
 from api.monitor import router as monitor_router
 from starlette.concurrency import run_in_threadpool
@@ -105,7 +107,7 @@ async def hot_reload_watcher():
                     connected_clients.remove(client)
 
 # Default Qpyt-UI configuration
-app_ui = QpytUI(title="Qpyt - UI V.09")
+app_ui = QpytUI(title="Qpyt - UI V1.1.0 TURBO")
 app_ui.add_brick("qp-prompt")
 app_ui.add_brick("qp-settings")
 app_ui.add_brick("qp-render-sdxl")
@@ -319,6 +321,35 @@ async def save_config(request: Request):
         logger.error(f"Error during save: {str(e)}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
+@app.post("/prompt/enhance")
+async def enhance_prompt(request: PromptEnhanceRequest):
+    """Enhance a simple prompt using local LLM."""
+    try:
+        # Load LLM if not loaded, then enhance
+        result = await run_in_threadpool(
+            LlmPrompterManager.enhance_prompt, 
+            base_prompt=request.prompt, 
+            max_new_tokens=request.max_new_tokens
+        )
+        return {"status": "success", "prompt": result} # Using 'prompt' field for consistency
+    except Exception as e:
+        logger.error(f"Error enhancing prompt: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/prompt/translate")
+async def translate_prompt(request: PromptTranslateRequest):
+    """Translate a prompt from French to English using Helsinki-NLP."""
+    try:
+        # Load Translator if not loaded, then translate
+        result = await run_in_threadpool(
+            TranslationManager.translate, 
+            text=request.text
+        )
+        return {"status": "success", "translated_text": result}
+    except Exception as e:
+        logger.error(f"Error translating prompt: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 @app.delete("/brick/{brick_id}")
 async def remove_brick(brick_id: str):
     logger.info(f"Removing brick: {brick_id}")
@@ -454,12 +485,29 @@ async def task_generate_wrapper(**kwargs):
     except Exception as log_err:
         logger.error(f"Failed to log generation: {log_err}")
     
+    # Send Notification if enabled
+    email_status = {"success": True, "message": "Email disabled"}
+    try:
+        task_prompt = kwargs.get('prompt', 'Sans titre')
+        # Resolve absolute path for attachment
+        abs_path = str(Path(config.OUTPUT_DIR) / image_url)
+        success, msg = Notifier.send_email(
+            subject=f"[Qpyt-UI] Génération Terminée : {task_prompt[:30]}...",
+            body=f"Votre image est prête !\n\nLien : {image_url}\nPrompt : {task_prompt}\nTemps : {exec_time:.2f}s",
+            attachment_path=abs_path
+        )
+        email_status = {"success": success, "message": msg}
+    except Exception as n_err:
+        logger.error(f"Failed to send email notification: {n_err}")
+        email_status = {"success": False, "message": str(n_err)}
+
     return {
         "image_url": f"/outputs/{image_url}",
         "execution_time": exec_time,
         "metadata": used_params,
         "warnings": used_params.get("lora_warnings", []),
-        "status": "success"
+        "status": "success",
+        "email_status": email_status
     }
 
 async def task_upscale_wrapper(**kwargs):
@@ -473,10 +521,28 @@ async def task_upscale_wrapper(**kwargs):
         ModelManager.upscale,
         **kwargs
     )
+
+    # Send Notification if enabled
+    email_status = {"success": True, "message": "Email disabled"}
+    try:
+        task_prompt = "Upscale"
+        # Resolve absolute path for attachment
+        abs_path = str(Path(config.OUTPUT_DIR) / image_url)
+        success, msg = Notifier.send_email(
+            subject=f"[Qpyt-UI] Upscale Terminé",
+            body=f"Votre image upscalée est prête !\n\nLien : /outputs/{image_url}\nTemps : {exec_time:.2f}s",
+            attachment_path=abs_path
+        )
+        email_status = {"success": success, "message": msg}
+    except Exception as n_err:
+        logger.error(f"Failed to send email notification: {n_err}")
+        email_status = {"success": False, "message": str(n_err)}
+
     return {
         "image_url": f"/outputs/{image_url}",
         "execution_time": exec_time,
-        "metadata": used_params
+        "metadata": used_params,
+        "email_status": email_status
     }
 
 async def task_video_wrapper(**kwargs):
@@ -506,12 +572,29 @@ async def task_video_wrapper(**kwargs):
     except Exception as log_err:
         logger.error(f"Failed to log video generation: {log_err}")
 
+    # Send Notification if enabled
+    email_status = {"success": True, "message": "Email disabled"}
+    try:
+        task_prompt = kwargs.get('prompt', 'Sans titre')
+        # Resolve absolute path for video attachment
+        abs_path = str(Path(config.OUTPUT_DIR) / day_str / video_filename)
+        success, msg = Notifier.send_email(
+            subject=f"[Qpyt-UI] Vidéo Terminée : {task_prompt[:30]}...",
+            body=f"Votre vidéo est prête !\n\nLien : {video_url}\nPrompt : {task_prompt}\nTemps : {end_time - start_time:.2f}s",
+            attachment_path=abs_path
+        )
+        email_status = {"success": success, "message": msg}
+    except Exception as n_err:
+        logger.error(f"Failed to send email notification: {n_err}")
+        email_status = {"success": False, "message": str(n_err)}
+
     return {
         "image_url": video_url,
         "thumbnail_url": thumb_url,
         "execution_time": end_time - start_time,
         "metadata": result["metadata"],
-        "status": "success"
+        "status": "success",
+        "email_status": email_status
     }
 
 # --- Endpoints Refactored to use Queue ---

@@ -27,5 +27,13 @@
             "dimensions": "896*1152",
             "orientation": "Portrait"
         }
-    ]
+    ],
+    "NOTIFICATIONS": {
+        "EMAIL_ENABLED": false,
+        "EMAIL_TO": "votre-mail@example.com",
+        "SMTP_SERVER": "smtp.gmail.com",
+        "SMTP_PORT": 587,
+        "SMTP_USER": "votre-compte@gmail.com",
+        "SMTP_PASSWORD": "votre-mot-de-passe-application"
+    }
 }

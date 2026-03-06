@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/themes/dark.css" />
     <script type="module"
         src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/shoelace-autoloader.js"></script>
+    <link rel="stylesheet" href="/static/themes/glassmorphism.css" />
 
     <script type="module">
         import { setBasePath } from 'https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/utilities/base-path.js';
@@ -76,7 +77,7 @@
 
 <body>
     <header>
-        <h1 id="app-title">Qpyt-UI V0.9.9 TURBO</h1>
+        <h1 id="app-title">Qpyt-UI V1.1.0 TURBO</h1>
         <div style="color: #64748b; font-size: 0.9rem;">Quantum Pixel Yield Terminal - Keep it smart, keep it visual.
         </div>
     </header>
@@ -162,13 +163,16 @@
 
                     <div
                         style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 0.5rem; padding-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
-                        <p style="color: #64748b; font-size: 0.85rem; margin-top: 0;">Default models to load on startup.
+                        <p style="color: #64748b; font-size: 0.85rem; margin-top: 0;">UI Customization & Notifications.
                         </p>
 
-                        <sl-select id="cfg-default-model" label="Default SDXL Model" help-text="Used by SDXL bricks"
-                            clearable></sl-select>
-                        <sl-select id="cfg-default-flux-model" label="Default Flux Model"
-                            help-text="Used by Flux bricks" clearable></sl-select>
+                        <sl-select id="cfg-theme-select" label="Application Theme"
+                            help-text="Choose your preferred visual style">
+                            <sl-option value="default">Classic Dark</sl-option>
+                            <sl-option value="glass">Premium Glass</sl-option>
+                        </sl-select>
+
+                        <sl-switch id="cfg-email-enabled">Enable Email Notifications</sl-switch>
                     </div>
 
                     <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
@@ -205,6 +209,7 @@
 
     <!-- External Libraries -->
     <script src="/static/js/imagetracer.js"></script>
+    <script src="/static/js/audio_engine.js"></script>
 
     <!-- Framework Scripts -->
     <script type="module" src="/static/components/qp-cartridge.js?v=41"></script>
