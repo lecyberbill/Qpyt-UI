@@ -1,4 +1,4 @@
-console.log("[QpBricks] Script version v37 loading...");
+console.log("[QpBricks] Script version v38 loading...");
 // Prompt Cartridge
 class QpPrompt extends HTMLElement {
     static get observedAttributes() { return ['brick-id']; }
@@ -313,7 +313,31 @@ class QpImageInput extends HTMLElement {
     async handleUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
+        await this.processImageFile(file);
+    }
 
+    async handlePaste() {
+        try {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                // Check for image types
+                const imageType = item.types.find(type => type.startsWith('image/'));
+                if (imageType) {
+                    const blob = await item.getType(imageType);
+                    const file = new File([blob], "pasted-image.png", { type: imageType });
+                    await this.processImageFile(file);
+                    window.qpyt_app?.notify("Image pasted from clipboard", "success");
+                    return;
+                }
+            }
+            window.qpyt_app?.notify("No image found in clipboard", "warning");
+        } catch (err) {
+            console.error("Paste failed:", err);
+            window.qpyt_app?.notify("Paste failed: " + err.message, "danger");
+        }
+    }
+
+    async processImageFile(file) {
         this.previewUrl = URL.createObjectURL(file);
 
         const reader = new FileReader();
@@ -330,6 +354,7 @@ class QpImageInput extends HTMLElement {
                     h *= scale;
                 }
 
+                // Snap to 64 for original SDXL logic, but remember Flux needs 16
                 w = Math.round(w / 64) * 64;
                 h = Math.round(h / 64) * 64;
                 if (w < 64) w = 64;
@@ -346,7 +371,7 @@ class QpImageInput extends HTMLElement {
                     bubbles: true,
                     composed: true
                 }));
-                window.qpyt_app?.notify(`Image optimized for SDXL (${w}x${h})`, "neutral");
+                window.qpyt_app?.notify(`Image optimized (${w}x${h})`, "neutral");
             };
             img.src = event.target.result;
         };
@@ -387,6 +412,12 @@ class QpImageInput extends HTMLElement {
                     opacity: 0;
                     cursor: pointer;
                 }
+                .actions-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0.5rem;
+                    margin-top: 0.5rem;
+                }
             </style>
             <qp-cartridge title="Source Image" type="input" brick-id="${brickId}">
                 <div class="preview-box">
@@ -398,15 +429,23 @@ class QpImageInput extends HTMLElement {
                     `}
                     <input type="file" class="file-input" accept="image/*" id="file-input">
                 </div>
-                ${this.previewUrl ? `
-                    <sl-button variant="danger" size="small" outline style="margin-top: 0.5rem; width: 100%;" id="clear-btn">
-                        <sl-icon slot="prefix" name="trash"></sl-icon>
-                        Clear Image
+                
+                <div class="actions-grid">
+                    <sl-button variant="default" size="small" outline id="paste-btn" title="Paste from clipboard">
+                        <sl-icon slot="prefix" name="clipboard-pulse"></sl-icon>
+                        Paste
                     </sl-button>
-                ` : ''}
+                    ${this.previewUrl ? `
+                        <sl-button variant="danger" size="small" outline id="clear-btn">
+                            <sl-icon slot="prefix" name="trash"></sl-icon>
+                            Clear
+                        </sl-button>
+                    ` : ''}
+                </div>
             </qp-cartridge>
         `;
         this.shadowRoot.getElementById('file-input')?.addEventListener('change', (e) => this.handleUpload(e));
+        this.shadowRoot.getElementById('paste-btn')?.addEventListener('click', () => this.handlePaste());
         this.shadowRoot.getElementById('clear-btn')?.addEventListener('click', () => {
             this.previewUrl = "";
             this.base64 = "";
@@ -424,7 +463,6 @@ class QpImageInput extends HTMLElement {
             img.style.cursor = 'grab';
             img.setAttribute('draggable', 'true');
             img.addEventListener('dragstart', (e) => {
-                // Ensure we send the Base64 data, not the blob URL
                 if (this.base64) {
                     e.dataTransfer.setData('text/plain', this.base64);
                     e.dataTransfer.effectAllowed = 'copy';

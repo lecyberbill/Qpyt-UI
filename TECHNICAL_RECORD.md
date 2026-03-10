@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V1.1.1 (Flux 2 Img2Img & Refined Architecture)
+**Current Version**: V1.1.2 (Clipboard Paste & Image Workflow)
 **Goal**: Visual excellence, auditory feedback, and robust email notifications.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -112,6 +112,13 @@ This document tracks architectural decisions, implemented features, and the road
 - **UI Logic Refinement**:
     - Resticted Img2Img behaviors (slider, image capture) specifically to FLUX.2, preserving Flux 1 as a pure Txt2Img model.
 
+### Clipboard Integration (V1.1.2 Updates)
+- **Native Paste Support**:
+    - Integrated `navigator.clipboard.read()` in `QpImageInput` to allow direct image ingestion from the clipboard.
+    - Added a dedicated **Paste** button with visual feedback (sl-notifications).
+- **Code Refactoring**:
+    - Extracted image processing (optimization, resizing, snapping) into `processImageFile` to ensure consistency between manual uploads and clipboard pastes.
+
 ### Prompt Helper & Persistence (V1.0.0 Updates)
 - **Compact Prompt Helper**:
     - Implemented `QpPromptHelper` component with categorization support (Style, Cadrage, Studio, Artiste, etc.).
@@ -184,6 +191,7 @@ This document tracks architectural decisions, implemented features, and the road
 - **V1.0.0**: Prompt Helper Integration, keyword persistence engine, and enrichment UI.
 - **V1.1.0**: **TURBO Release**. Glassmorphism theme, Audio Engine, Email Attachments, and robust Base64/Path handling.
 - **V1.1.1**: Flux 2 Img2Img multimodal support, architectural snapping (Multiple of 16), and robust parameter filtering.
+- **V1.1.2**: Native Clipboard Paste support for `QpImageInput` and unified image optimization pipeline.
 
 ---
 
