@@ -3,8 +3,8 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V1.0.0 (Prompt Helper & Persistence)
-**Goal**: Asynchronous task orchestration, serialized worker, and real-time job monitoring.
+**Current Version**: V1.1.1 (Flux 2 Img2Img & Refined Architecture)
+**Goal**: Visual excellence, auditory feedback, and robust email notifications.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
     - **Imaging**: Diffusers (SDXL, FLUX, SD3.5).
@@ -102,6 +102,16 @@ This document tracks architectural decisions, implemented features, and the road
 - **Qwen2-based Text Encoding**:
     - Patched the text encoding logic to correctly leverage `Qwen2` architectures (mistakenly tagged as Mistral3 in some repos), ensuring accurate prompt-to-image alignment.
 
+### Flux2 Image-to-Image & Compatibility (V1.1.1 Updates)
+- **Multimodal Img2Img for Flux2**:
+    - Implemented image-based conditioning for FLUX.2 [Klein].
+    - Robust parameter filtering: Automatically removes unsupported `strength` and `negative_prompt` tokens to prevent pipeline crashes.
+- **Architectural Dimension Snapping**:
+    - Enforced **Multiples of 16** for Flux models (768, 1280, etc.) to satisfy patch-transformer constraints.
+    - Added automated RGB conversion for source images to ensure model compatibility.
+- **UI Logic Refinement**:
+    - Resticted Img2Img behaviors (slider, image capture) specifically to FLUX.2, preserving Flux 1 as a pure Txt2Img model.
+
 ### Prompt Helper & Persistence (V1.0.0 Updates)
 - **Compact Prompt Helper**:
     - Implemented `QpPromptHelper` component with categorization support (Style, Cadrage, Studio, Artiste, etc.).
@@ -110,6 +120,24 @@ This document tracks architectural decisions, implemented features, and the road
     - **Enrichment Module**: Users can now add their own keywords directly from the UI to enrich their local experience.
 - **Event-Driven Injection**:
     - Refactored `QpPrompt` to listen for global `qp-prompt-inject` events, allowing seamless interaction between helper tools and the main prompt input.
+
+### Visual & Auditory Excellence (V1.1.0 Updates)
+- **Glassmorphism Design System**:
+    - Implemented `glassmorphism.css` providing a premium translucent look.
+    - Visual overhaul of all "Bricks" with better spacing, blurred backgrounds, and high-contrast typography.
+- **Auditory Feedback (Audio Engine)**:
+    - Integrated `web/js/audio_engine.js` for real-time UI cues.
+    - Distinct sounds for job start, success, error, and prompt tool activations.
+- **Enhanced Email System**:
+    - Refactored `core/notifier.py` to support **Media Attachments** (Images/Videos).
+    - Status reporting: Backend email failures are now propagated to the UI with `sl-alert` notifications.
+- **Robust Image Processing Pipeline**:
+    - Created `core/utils.py` to centralize and harden image loading.
+    - **Base64 Resilience**: Automatically repairs missing padding and handles malformed 4n+1 truncation gracefully.
+    - **Internal Path Awareness**: Native support for `/outputs/` and `/view/` prefixes, preventing decoding collisions.
+- **Lightbox & Preview Stability**:
+    - Refactored `QpDashboard` to use persistent DOM elements for the lightbox.
+    - Implemented **sl-dialog hoist** and state-reset logic to prevent z-index conflicts and UI locking.
 
 ## 3. Memory & Performance Strategy
 - **Triton Optimization**: High-performance kernel compilation via `triton-windows` strictly requires **Python 3.13.5** and **Visual Studio Build Tools** ("Desktop development with C++" workload). Triton relies on these to compile kernels on the fly.
@@ -154,6 +182,8 @@ This document tracks architectural decisions, implemented features, and the road
 - **V0.9.8**: Minor performance tweaks and Flux alignment.
 - **V0.9.9**: FLUX.2 Klein Support, manual weight mapping, and auto-guidance logic.
 - **V1.0.0**: Prompt Helper Integration, keyword persistence engine, and enrichment UI.
+- **V1.1.0**: **TURBO Release**. Glassmorphism theme, Audio Engine, Email Attachments, and robust Base64/Path handling.
+- **V1.1.1**: Flux 2 Img2Img multimodal support, architectural snapping (Multiple of 16), and robust parameter filtering.
 
 ---
 

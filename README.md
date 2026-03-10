@@ -1,4 +1,4 @@
-# Qpyt-UI V1.0.0 TURBO
+# Qpyt-UI V1.1.0 TURBO
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -9,7 +9,12 @@
 ## Overview
 Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance interaction with Stable Diffusion (SDXL, FLUX, SD3.5) and auxiliary AI models. It uses a unique "Brick" system where every UI component is a standalone Web Component powered by a dedicated Python backend service.
 
-## Key Features (V1.0)
+## Key Features (V1.1)
+
+### ✨ Visual & Auditory Experience [NEW]
+- **Glassmorphism UI**: High-end translucent interface with vibrant gradients and premium typography.
+- **AI Audio Cues**: Real-time sound feedback for generations, completions, and errors.
+- **Unified Lightbox**: Fast, immersive fullscreen preview for all history and output bricks.
 
 ### 🎨 Generative Imaging
 - **Multi-Engine Support**: Seamlessly switch between **SDXL**, **FLUX.1-Schnell**, **SD 3.5 Turbo**, and **FLUX.2-Klein**.
@@ -35,6 +40,7 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 - **LoRA Manager**: Dynamic loading and blending of multiple LoRAs with weight synchronization and **Architectural Safety Checks** (SD 1.5 vs SDXL/Flux).
 - **Iterative Fallback**: Robust handling of incomplete GGUF/Safetensors models by automatically fetching missing components (VAE, CLIP, T5) from official repositories.
 - **Task Queue System**: Asynchronous job orchestration through a serialized `QueueManager`, preventing VRAM overflow by ensuring only one heavy task runs at a time.
+- **Robust Notifications**: Integrated email system with **Media Attachments** and real-time backend-to-UI error reporting.
 - **Session History Log**: Automatic generation of HTML reports including full metadata and LoRA configurations.
 - **Persistence**: Save, Load, and **Delete** complex node layouts as JSON workflows.
 - **State Management**: Circular dependencies and history tracking.
@@ -141,6 +147,7 @@ python api/main.py
 Then open your browser at: **http://127.0.0.1:8000**
 
 ## Version History
+*   **V1.1.0**: **TURBO Performance & Aesthetics**. Integrated **Glassmorphism Design System**, global **Audio Engine**, and **Email Attachments**. Fixed critical Lightbox z-index blocks and hardened Base64/Path loading robustness.
 *   **V1.0.0**: **Prompt Helper Integration**. Added a compact, categorized keyword assistant with local persistence database, searchable chips, and direct injection into the Prompt brick. 
 *   **V0.9.9**: **FLUX.2 Klein Support**, specialized weight mapping for Alpha/SFT checkpoints, automated guidance scaling (distilled models), and Qwen2-based text encoder integration.
 *   **V0.9.8**: **ControlNet Ecosystem** (Depth, Pose), **OpenPose Editor** (Canvas), **Depth Anything V2** Integration, and Memory Leak Fixes.

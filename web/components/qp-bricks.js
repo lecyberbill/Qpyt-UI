@@ -1,4 +1,4 @@
-console.log("[QpBricks] Script version v36 loading...");
+console.log("[QpBricks] Script version v37 loading...");
 // Prompt Cartridge
 class QpPrompt extends HTMLElement {
     static get observedAttributes() { return ['brick-id']; }
@@ -895,13 +895,15 @@ class QpRender extends HTMLElement {
         const { batch_count = 1, ...genSettings } = settings;
         let successCount = 0;
 
-        // Img2Img specific - Only send image if this is a dedicated Img2Img brick
+        // Img2Img specific - Send image if it's a dedicated Img2Img brick OR if it's FLUX with source image
         const imageSource = document.querySelector('qp-image-input');
         const isImg2ImgBrick = this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT';
+        const isFluxImg2Img = (this.modelType === 'flux2') && imageSource?.getImage();
+
         const blenderSource = document.querySelector('qp-image-blender');
         const blenderData = blenderSource ? blenderSource.getValue() : null;
 
-        const image = isImg2ImgBrick ? (imageSource?.getImage() || null) : null;
+        const image = (isImg2ImgBrick || isFluxImg2Img) ? (imageSource?.getImage() || null) : null;
 
         if (isImg2ImgBrick && !image) {
             window.qpyt_app.notify("Missing source image! Please upload an image to the 'Source Image' brick first.", "warning");
@@ -1140,6 +1142,10 @@ class QpRender extends HTMLElement {
         const title = this.title || titleMap[this.modelType] || 'Generator';
         const brickId = this.getAttribute('brick-id') || '';
 
+        const imageSource = document.querySelector('qp-image-input');
+        const hasSourceImage = imageSource && imageSource.getImage();
+        const showDenoising = (this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-UPSCALER' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT');
+
         this.shadowRoot.innerHTML = `
             <style>
                 .render-container {
@@ -1224,7 +1230,7 @@ class QpRender extends HTMLElement {
                         </sl-select>
                         ` : ''}
 
-                        ${(this.tagName === 'QP-IMG2IMG' || this.tagName === 'QP-UPSCALER' || this.tagName === 'QP-INPAINT' || this.tagName === 'QP-OUTPAINT') ? `
+                        ${showDenoising ? `
                             <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 0.8rem; border: 1px solid rgba(16, 185, 129, 0.2); margin-top: 1rem; width: 100%; box-sizing: border-box;">
                                 <div style="display: flex; align-items: center; gap: 0.5rem; color: #10b981; font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem;">
                                     <sl-icon name="${this.tagName === 'QP-UPSCALER' ? 'aspect-ratio' : 'magic'}"></sl-icon> 
@@ -1251,27 +1257,6 @@ class QpRender extends HTMLElement {
                                     </div>
                                 ` : ''}
                             </div>
-                            <style>
-                                #denoising-slider::-webkit-slider-thumb {
-                                    appearance: none;
-                                    width: 16px;
-                                    height: 16px;
-                                    border-radius: 50%;
-                                    background: #10b981;
-                                    cursor: pointer;
-                                    border: 2px solid #fff;
-                                    box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                                }
-                                #denoising-slider::-moz-range-thumb {
-                                    width: 16px;
-                                    height: 16px;
-                                    border-radius: 50%;
-                                    background: #10b981;
-                                    cursor: pointer;
-                                    border: 2px solid #fff;
-                                    box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                                }
-                            </style>
                         ` : ''}
 
                         <div class="status-area" id="preview-area" style="${this.lastImageUrl ? 'cursor: pointer;' : ''}">

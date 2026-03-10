@@ -1301,6 +1301,14 @@ class ModelManager:
         
         generator = torch.Generator(config.DEVICE).manual_seed(seed)
         
+        # Force multiples of 16 for Flux models (required for patch architecture)
+        if model_type in ['flux', 'flux2']:
+            orig_w, orig_h = width, height
+            width = (max(width, 128) // 16) * 16
+            height = (max(height, 128) // 16) * 16
+            if width != orig_w or height != orig_h:
+                print(f"[Flux] Snapping dimensions to multiples of 16: {orig_w}x{orig_h} -> {width}x{height}")
+
         # Generation
         print(f"Generating {model_type} image for prompt: {prompt}")
         print(f"[Debug] Dimensions: {width}x{height}, Scale: {guidance_scale}, Steps: {num_inference_steps}")
@@ -1335,6 +1343,11 @@ class ModelManager:
                 
                 target_w, target_h = width, height
                 
+                # Check for RGB mode (Compatibility Fix)
+                if init_image.mode != "RGB":
+                    print(f"[Img2Img] Converting image from {init_image.mode} to RGB for compatibility.")
+                    init_image = init_image.convert("RGB")
+
                 if init_image.size != (target_w, target_h):
                     print(f"[Img2Img] Resizing input image to match requested dimensions: {init_image.size} -> ({target_w}, {target_h})")
                     init_image = init_image.resize((target_w, target_h), Image.LANCZOS)
@@ -1606,6 +1619,14 @@ class ModelManager:
             try:
                 print(f"[Inference] Transformer device: {active_pipe.transformer.device}, dtype: {active_pipe.transformer.dtype}")
             except: pass
+
+            # Flux 2 doesn't support 'strength' (denoising) or 'negative_prompt'
+            # It uses multimodal conditioning for images and doesn't traditionally use negative prompts
+            if model_type == 'flux2':
+                for unsupported in ['strength', 'negative_prompt']:
+                    if unsupported in kwargs:
+                        val = kwargs.pop(unsupported)
+                        print(f"[Flux2] Removing unsupported parameter '{unsupported}' ({val}) from call.")
 
             image_out = active_pipe(
                 **call_kwargs,
