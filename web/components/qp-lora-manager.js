@@ -30,8 +30,11 @@ class QpLoraManager extends HTMLElement {
     }
 
     getValues() {
+        // Filter out empty/null paths if any
+        const cleaned = this.selectedLoras.filter(l => l && l.path);
+        console.log("[LoRA Manager] Sending LoRAs to server:", cleaned);
         return {
-            loras: this.selectedLoras
+            loras: cleaned
         }
     }
 
@@ -207,7 +210,7 @@ class QpLoraManager extends HTMLElement {
             return `
                                 <div class="lora-item">
                                     <div class="lora-top">
-                                        <sl-switch ?checked="${lora.enabled}" class="enable-toggle" data-index="${idx}" size="small"></sl-switch>
+                                        <sl-switch ${lora.enabled ? 'checked' : ''} class="enable-toggle" data-index="${idx}" size="small"></sl-switch>
                                         <div class="lora-name" title="${lora.path}">${filename}</div>
                                         <sl-icon-button name="trash" class="remove-btn" data-index="${idx}" style="font-size: 1rem;"></sl-icon-button>
                                     </div>
@@ -248,17 +251,22 @@ class QpLoraManager extends HTMLElement {
         this.shadowRoot.querySelectorAll('.enable-toggle').forEach(sw => {
             sw.addEventListener('sl-change', () => {
                 const idx = parseInt(sw.dataset.index);
-                this.updateLora(idx, 'enabled', sw.checked);
+                const enabled = sw.checked;
+                console.log(`[LoRA Manager] Manual Toggle: LoRA ${idx} is now ${enabled ? 'ENABLED' : 'DISABLED'}`);
+                this.updateLora(idx, 'enabled', enabled);
+                // We re-render to ensure visuals sync, but state is already in this.selectedLoras
+                this.render();
             });
         });
 
+        // Sync numerical inputs and sliders
         this.shadowRoot.querySelectorAll('.weight-slider').forEach(range => {
             range.addEventListener('sl-input', () => {
                 const idx = parseInt(range.dataset.index);
                 const val = parseFloat(range.value);
                 this.updateLora(idx, 'weight', val);
 
-                // Sync numerical input
+                // Sync numerical input display
                 const input = this.shadowRoot.querySelector(`.weight-input[data-index="${idx}"]`);
                 if (input) input.value = val.toString();
             });

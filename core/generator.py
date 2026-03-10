@@ -306,7 +306,17 @@ class ModelManager:
                 print(f"[LoRA] Error unloading: {e}")
         
         cls._active_lora_names = []
-        active_loras = [l for l in loras if l.get('enabled', True)]
+        print(f"[LoRA Debug] Received raw LoRA list: {loras}", flush=True)
+        active_loras = []
+        for l in loras:
+            is_enabled = l.get('enabled')
+            # Handle both boolean True, string "true", and None (backward compatibility)
+            if is_enabled is True or str(is_enabled).lower() == 'true' or is_enabled is None:
+                active_loras.append(l)
+            else:
+                print(f"[LoRA Debug] Skipping disabled LoRA: {l.get('path')}", flush=True)
+                
+        print(f"[LoRA Debug] Final active LoRAs for inference: {[l.get('path') for l in active_loras]}", flush=True)
         warnings = []
         
         if not active_loras:
@@ -333,7 +343,7 @@ class ModelManager:
             # Architecture Check
             lora_arch = cls._get_lora_architecture(lora_path)
             pipe_arch = "sdxl" if isinstance(pipeline, (StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline)) else \
-                        "flux" if isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline)) else "unknown"
+                        "flux" if isinstance(pipeline, (FluxPipeline, FluxImg2ImgPipeline, FluxInpaintPipeline, Flux2Pipeline)) else "unknown"
             
             if lora_arch != "unknown" and pipe_arch != "unknown" and lora_arch != pipe_arch:
                 msg = f"Architecture mismatch for {p}: LoRA is {lora_arch.upper()}, but model is {pipe_arch.upper()}."
@@ -344,7 +354,97 @@ class ModelManager:
             adapter_name = f"adapter_{i}_{Path(p).stem}"
             try:
                 print(f"  → Loading LoRA: {p} (Scale: {w})", flush=True)
-                pipeline.load_lora_weights(str(lora_path), adapter_name=adapter_name)
+                
+                # Check for prefix in LoRA safetensors
+                from safetensors.torch import load_file
+                lora_sd = load_file(str(lora_path))
+                
+                # Strip common prefixes and re-prefix with 'transformer.' if model is Flux
+                if pipe_arch == "flux":
+                    prefixes = ["diffusion_model.", "transformer.", "base_model.model.transformer.", "base_model.model.diffusion_model."]
+                    found_prefix = False
+                    for pref in prefixes:
+                        if any(k.startswith(pref) for k in lora_sd.keys()):
+                            print(f"    -> Mapping LoRA keys from {pref} to diffusers format.")
+                            lora_sd = {k[len(pref):]: v for k, v in lora_sd.items() if k.startswith(pref)}
+                            found_prefix = True
+                            break
+                    
+                    # Mapping of BFL/X-Labs keys to Diffusers keys for Flux 2
+                    # double_blocks -> transformer_blocks
+                    # single_blocks -> single_transformer_blocks
+                    new_sd = {}
+                    for k, v in lora_sd.items():
+                        # Standard Block Mapping
+                        new_k = k
+                        if "double_blocks." in new_k:
+                            new_k = new_k.replace("double_blocks.", "transformer_blocks.")
+                        elif "single_blocks." in new_k:
+                            new_k = new_k.replace("single_blocks.", "single_transformer_blocks.")
+                        
+                        # Flux 2 Specific Rename (BFL naming to Diffusers Flux2 naming)
+                        # AND Tensor Splitting for fused weights (output dimension 9216 -> 3*3072)
+                        
+                        is_lora_b = ".lora_B.weight" in new_k
+                        
+                        if ".img_attn.qkv." in new_k:
+                             # Map to to_q, to_k, and to_v for Flux 2 separate projections
+                             targets = ["to_q", "to_k", "to_v"]
+                             if is_lora_b and v.shape[0] == 9216:
+                                 # Split the tensor!
+                                 chunks = v.chunk(3, dim=0)
+                                 for target, chunk in zip(targets, chunks):
+                                     new_sd["transformer." + new_k.replace("img_attn.qkv.", f"attn.{target}.")] = chunk
+                             else:
+                                 for target in targets:
+                                     new_sd["transformer." + new_k.replace("img_attn.qkv.", f"attn.{target}.")] = v
+                                     
+                        elif ".txt_attn.qkv." in new_k:
+                             # Same for text attention
+                             targets = ["add_q_proj", "add_k_proj", "add_v_proj"]
+                             if is_lora_b and v.shape[0] == 9216:
+                                 chunks = v.chunk(3, dim=0)
+                                 for target, chunk in zip(targets, chunks):
+                                     new_sd["transformer." + new_k.replace("txt_attn.qkv.", f"attn.{target}.")] = chunk
+                             else:
+                                 for target in targets:
+                                     new_sd["transformer." + new_k.replace("txt_attn.qkv.", f"attn.{target}.")] = v
+                        
+                        # MLP Layers
+                        elif ".img_mlp.0." in new_k:
+                             new_sd["transformer." + new_k.replace("img_mlp.0.", "ff.linear_in.")] = v
+                        elif ".img_mlp.2." in new_k:
+                             new_sd["transformer." + new_k.replace("img_mlp.2.", "ff.linear_out.")] = v
+                        elif ".txt_mlp.0." in new_k:
+                             new_sd["transformer." + new_k.replace("txt_mlp.0.", "ff_context.linear_in.")] = v
+                        elif ".txt_mlp.2." in new_k:
+                             new_sd["transformer." + new_k.replace("txt_mlp.2.", "ff_context.linear_out.")] = v
+                                     
+                        elif ".linear1." in new_k and "single_transformer_blocks." in new_k:
+                             # Map single block fused linear
+                             new_sd["transformer." + new_k.replace(".linear1.", ".attn.to_qkv_mlp_proj.")] = v
+                        elif ".linear2." in new_k and "single_transformer_blocks." in new_k:
+                             # Map single block out projection
+                             new_sd["transformer." + new_k.replace(".linear2.", ".attn.to_out.")] = v
+                        elif ".img_attn.proj." in new_k:
+                             new_sd["transformer." + new_k.replace("img_attn.proj.", "attn.to_out.0.")] = v
+                        elif ".txt_attn.proj." in new_k:
+                             new_sd["transformer." + new_k.replace("txt_attn.proj.", "attn.to_add_out.")] = v
+                        else:
+                            # Standard prefixing for common keys
+                             new_sd["transformer." + new_k] = v
+                             
+                    lora_sd = new_sd
+                    print(f"    -> Applied block mapping & tensor splitting. Total keys: {len(lora_sd)}")
+                
+                # IMPORTANT: Flux 2 + CPU offload often clashes with xformers
+                if pipe_arch == "flux":
+                    try:
+                        print("    -> Disabling xformers for LoRA compatibility with CPU offload.")
+                        pipeline.disable_xformers_memory_efficient_attention()
+                    except: pass
+                
+                pipeline.load_lora_weights(lora_sd, adapter_name=adapter_name)
                 adapter_names.append(adapter_name)
                 adapter_weights.append(float(w))
             except Exception as e:
@@ -600,15 +700,28 @@ class ModelManager:
                             state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
                         
                         # Determine architecture (Klein 4B: 5 double blocks, 20 single blocks)
-                        double_blocks = [k for k in state_dict.keys() if k.startswith("double_blocks.")]
-                        single_blocks = [k for k in state_dict.keys() if k.startswith("single_blocks.")]
+                        # Handle potential prefixes like "transformer." or "diffusion_model."
+                        all_keys = list(state_dict.keys())
+                        
+                        double_blocks = [k for k in all_keys if "double_blocks." in k]
+                        single_blocks = [k for k in all_keys if "single_blocks." in k]
                         
                         num_double = 0
                         num_single = 0
                         if double_blocks:
-                            num_double = max(int(k.split(".")[1]) for k in double_blocks) + 1
+                            # Extract index properly regardless of prefix
+                            nums = []
+                            for k in double_blocks:
+                                parts = k.split("double_blocks.")[1].split(".")
+                                if parts[0].isdigit(): nums.append(int(parts[0]))
+                            if nums: num_double = max(nums) + 1
+                            
                         if single_blocks:
-                            num_single = max(int(k.split(".")[1]) for k in single_blocks) + 1
+                            nums = []
+                            for k in single_blocks:
+                                parts = k.split("single_blocks.")[1].split(".")
+                                if parts[0].isdigit(): nums.append(int(parts[0]))
+                            if nums: num_single = max(nums) + 1
                             
                         print(f"  -> Detected architecture: {num_double} double blocks, {num_single} single blocks")
                         
@@ -1115,7 +1228,7 @@ class ModelManager:
 
             # 4. Standard optimizations (xformers)
             # Skip for Flux as it uses native SDPA efficiently and xformers can conflict with offloading
-            if config.DEVICE == "cuda" and model_type != 'flux':
+            if config.DEVICE == "cuda" and model_type not in ['flux', 'flux2']:
                 try:
                     import xformers
                     cls._pipeline.enable_xformers_memory_efficient_attention()
@@ -1293,13 +1406,16 @@ class ModelManager:
             print("[Debug] Clearing previous LoRAs (none requested).", flush=True)
             ModelManager.apply_loras(pipe, [])
         
-        # Seed
-        generator = None
+        # Seed / Generator
         if seed is None:
             import random
             seed = random.randint(0, 2**32 - 1)
         
-        generator = torch.Generator(config.DEVICE).manual_seed(seed)
+        # Flux models often use CPU offload which can lead to device mismatch 
+        # (ValueError: Cannot generate a cpu tensor from a generator of type cuda)
+        # We use CPU generator for Flux to match its offloaded state.
+        gen_device = "cpu" if model_type.lower() in ['flux', 'flux2'] else config.DEVICE
+        generator = torch.Generator(gen_device).manual_seed(seed)
         
         # Force multiples of 16 for Flux models (required for patch architecture)
         if model_type in ['flux', 'flux2']:
