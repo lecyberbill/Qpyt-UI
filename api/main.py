@@ -107,7 +107,7 @@ async def hot_reload_watcher():
                     connected_clients.remove(client)
 
 # Default Qpyt-UI configuration
-app_ui = QpytUI(title="Qpyt - UI V1.1.0 TURBO")
+app_ui = QpytUI(title="Qpyt - UI V1.1.2 (Clipboard & Flux2)")
 app_ui.add_brick("qp-prompt")
 app_ui.add_brick("qp-settings")
 app_ui.add_brick("qp-render-sdxl")

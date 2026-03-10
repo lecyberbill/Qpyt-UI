@@ -1,4 +1,4 @@
-# Qpyt-UI V1.1.0 TURBO
+# Qpyt-UI V1.1.2 (Clipboard & Flux2)
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -147,7 +147,8 @@ python api/main.py
 Then open your browser at: **http://127.0.0.1:8000**
 
 ## Version History
-*   **V1.1.0**: **TURBO Performance & Aesthetics**. Integrated **Glassmorphism Design System**, global **Audio Engine**, and **Email Attachments**. Fixed critical Lightbox z-index blocks and hardened Base64/Path loading robustness.
+*   **V1.1.1**: **Flux 2 Img2Img & Snapping**. Added multimodal support for Flux 2 [Klein] and automated architectural snapping (Multiple of 16).
+*   **V1.1.2**: **Native Clipboard Paste**. Integrated direct image pasting from clipboard into the `QpImageInput` brick.
 *   **V1.0.0**: **Prompt Helper Integration**. Added a compact, categorized keyword assistant with local persistence database, searchable chips, and direct injection into the Prompt brick. 
 *   **V0.9.9**: **FLUX.2 Klein Support**, specialized weight mapping for Alpha/SFT checkpoints, automated guidance scaling (distilled models), and Qwen2-based text encoder integration.
 *   **V0.9.8**: **ControlNet Ecosystem** (Depth, Pose), **OpenPose Editor** (Canvas), **Depth Anything V2** Integration, and Memory Leak Fixes.
