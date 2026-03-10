@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V1.1.2 (Clipboard Paste & Image Workflow)
+**Current Version**: V1.1.3 (Smart Canvas & Photo Editor)
 **Goal**: Visual excellence, auditory feedback, and robust email notifications.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -119,6 +119,14 @@ This document tracks architectural decisions, implemented features, and the road
 - **Code Refactoring**:
     - Extracted image processing (optimization, resizing, snapping) into `processImageFile` to ensure consistency between manual uploads and clipboard pastes.
 
+### Smart Canvas & Advanced Photo Editor (V1.1.3 Updates)
+- **Interactive Cropping Engine**:
+    - Implemented a frontend selection tool with drag-and-resize capabilities.
+    - Added percentage-based coordinate mapping to handle responsive editor views.
+- **Backend Transformation Pipeline**:
+    - Expanded `ImageEditor` (PIL-based) with `crop()` and `zoom()` methods.
+    - Integrated multi-step transformations (Rotate -> Zoom -> Crop) into a single "Baking" process to maintain performance on low-power machines.
+
 ### Prompt Helper & Persistence (V1.0.0 Updates)
 - **Compact Prompt Helper**:
     - Implemented `QpPromptHelper` component with categorization support (Style, Cadrage, Studio, Artiste, etc.).
@@ -192,6 +200,7 @@ This document tracks architectural decisions, implemented features, and the road
 - **V1.1.0**: **TURBO Release**. Glassmorphism theme, Audio Engine, Email Attachments, and robust Base64/Path handling.
 - **V1.1.1**: Flux 2 Img2Img multimodal support, architectural snapping (Multiple of 16), and robust parameter filtering.
 - **V1.1.2**: Native Clipboard Paste support for `QpImageInput` and unified image optimization pipeline.
+- **V1.1.3**: Smart Canvas features: Interactive Crop selection and Real-time Zoom in Photo Editor.
 
 ---
 

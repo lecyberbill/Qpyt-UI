@@ -27,6 +27,40 @@ class ImageEditor:
             self.img = self.img.transpose(Image.FLIP_TOP_BOTTOM)
         return self
 
+    def zoom(self, factor: float):
+        if factor == 1.0 or factor <= 0: return self
+        width, height = self.img.size
+        new_size = (int(width * factor), int(height * factor))
+        self.img = self.img.resize(new_size, Image.LANCZOS)
+        return self
+
+    def crop(self, top: float, left: float, bottom: float, right: float):
+        """
+        Crops the image using normalized coordinates (0.0 to 1.0).
+        """
+        if top == 0 and left == 0 and bottom == 0 and right == 0:
+            return self
+            
+        width, height = self.img.size
+        
+        # Calculate pixel coordinates
+        # bottom and right are "distance from edge" in the settings usually, 
+        # but let's assume they are the absolute normalized coordinates of the bottom-right corner.
+        # If settings say "crop_bottom: 0.2", it might mean "remove 20% from bottom".
+        # Let's align with frontend: crop_top, crop_left, crop_right, crop_bottom are offsets from the edges.
+        
+        px_left = int(left * width)
+        px_top = int(top * height)
+        px_right = int(width - (right * width))
+        px_bottom = int(height - (bottom * height))
+        
+        # Security constraints
+        if px_right <= px_left: px_right = px_left + 1
+        if px_bottom <= px_top: px_bottom = px_top + 1
+        
+        self.img = self.img.crop((px_left, px_top, px_right, px_bottom))
+        return self
+
     def blur(self, radius: int):
         if radius > 0:
             self.img = self.img.filter(ImageFilter.GaussianBlur(radius=radius))
@@ -155,6 +189,13 @@ class ImageEditor:
         if settings.get('grayscale', False): self.to_grayscale()
         self.rotate(settings.get('rotation_angle', 0))
         self.mirror(settings.get('mirror_type', 'none'))
+        self.zoom(settings.get('zoom', 1.0))
+        self.crop(
+            settings.get('crop_top', 0),
+            settings.get('crop_left', 0),
+            settings.get('crop_bottom', 0),
+            settings.get('crop_right', 0)
+        )
         
         # 2. Detail
         self.blur(settings.get('blur_radius', 0))

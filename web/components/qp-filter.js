@@ -12,7 +12,9 @@ class QpFilter extends HTMLElement {
             blur_radius: 0, sharpness_factor: 1.0,
             rotation_angle: 0, mirror_type: "none", special_filter: "none",
             vibrance: 0.0, hue_angle: 0,
-            color_shift_r: 0, color_shift_g: 0, color_shift_b: 0
+            color_shift_r: 0, color_shift_g: 0, color_shift_b: 0,
+            zoom: 1.0,
+            crop_top: 0, crop_left: 0, crop_bottom: 0, crop_right: 0
         };
         this.settings = { ...this.defaultSettings };
 
@@ -20,6 +22,8 @@ class QpFilter extends HTMLElement {
         this.workingImage = null; // Current committed state
         this.previewImage = null; // (Unused in new logic, alias to workingImage)
         this.editorOpen = false;
+        this.isCropMode = false;
+        this.cropBox = { x: 10, y: 10, w: 80, h: 80 }; // Normalized percentages
     }
 
     connectedCallback() {
@@ -176,6 +180,7 @@ class QpFilter extends HTMLElement {
         if (s.rotation_angle !== 0) transforms.push(`rotate(${s.rotation_angle}deg)`);
         if (s.mirror_type === 'horizontal') transforms.push('scaleX(-1)');
         if (s.mirror_type === 'vertical') transforms.push('scaleY(-1)');
+        if (s.zoom !== 1.0) transforms.push(`scale(${s.zoom})`);
         return transforms.join(' ');
     }
 
@@ -262,6 +267,40 @@ class QpFilter extends HTMLElement {
             if (vOverlay) {
                 vOverlay.style.opacity = (s.special_filter === 'vignette') ? "1" : "0";
             }
+        }
+
+        // Update Crop Overlay
+        this.updateCropOverlay();
+    }
+
+    toggleCropMode() {
+        this.isCropMode = !this.isCropMode;
+        this.renderEditor();
+    }
+
+    updateCropOverlay() {
+        const overlay = this.shadowRoot.getElementById('crop-box-rect');
+        const img = this.shadowRoot.querySelector('.preview-pane img');
+        if (!overlay || !img) return;
+
+        if (this.isCropMode) {
+            overlay.style.display = 'block';
+            overlay.style.top = `${this.cropBox.y}%`;
+            overlay.style.left = `${this.cropBox.x}%`;
+            overlay.style.width = `${this.cropBox.w}%`;
+            overlay.style.height = `${this.cropBox.h}%`;
+
+            // Sync settings
+            this.settings.crop_top = this.cropBox.y / 100;
+            this.settings.crop_left = this.cropBox.x / 100;
+            this.settings.crop_bottom = (100 - (this.cropBox.y + this.cropBox.h)) / 100;
+            this.settings.crop_right = (100 - (this.cropBox.x + this.cropBox.w)) / 100;
+        } else {
+            overlay.style.display = 'none';
+            this.settings.crop_top = 0;
+            this.settings.crop_left = 0;
+            this.settings.crop_bottom = 0;
+            this.settings.crop_right = 0;
         }
     }
 
@@ -401,7 +440,12 @@ class QpFilter extends HTMLElement {
                     </svg>
                     
                     ${this.workingImage
-                ? `<img src="${this.workingImage}" style="filter:${this.cssFilter}; transform:${this.cssTransform}; transition: transform 0.1s;">`
+                ? `<div class="img-container" style="position:relative; display:inline-block; max-width:100%; max-height:100%;">
+                        <img src="${this.workingImage}" style="filter:${this.cssFilter}; transform:${this.cssTransform}; transition: transform 0.1s; max-width:100%; max-height:100%;">
+                        <div id="crop-box-rect" style="position:absolute; border:2px dashed #f59e0b; background:rgba(245,158,11,0.2); cursor:move; display:none; box-sizing:border-box;">
+                            <div class="crop-handle" style="position:absolute; bottom:-5px; right:-5px; width:10px; height:10px; background:#f59e0b; cursor:nwse-resize;"></div>
+                        </div>
+                    </div>`
                 : `<div style="color:#64748b">No Image</div>`
             }
                     <!-- Vignette Overlay -->
@@ -435,7 +479,7 @@ class QpFilter extends HTMLElement {
                                 </div>
                             </sl-tab-panel>
 
-                            <sl-tab-panel name="effects">
+                             <sl-tab-panel name="effects">
                                 <div style="display:flex; flex-direction:column; gap:1rem; padding-top:1rem;">
                                      <sl-select size="small" label="Special Filter" value="${this.settings.special_filter}" id="special-filter-select">
                                         <sl-option value="none">None</sl-option>
@@ -447,12 +491,25 @@ class QpFilter extends HTMLElement {
                                         <sl-option value="pixelize">Pixelize</sl-option>
                                     </sl-select>
                                      <div style="height:1px; background:rgba(255,255,255,0.1);"></div>
+                                     <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:-0.5rem;">Transform</div>
                                      ${slider("Rotation", "rotation_angle", -180, 180, 90)}
+                                     ${slider("Zoom", "zoom", 0.1, 2.0, 0.05)}
                                      <sl-select size="small" label="Mirror" value="${this.settings.mirror_type}" id="mirror-select">
                                         <sl-option value="none">None</sl-option>
                                         <sl-option value="horizontal">Horizontal</sl-option>
                                         <sl-option value="vertical">Vertical</sl-option>
-                                    </sl-select>
+                                     </sl-select>
+                                     
+                                     <div style="height:1px; background:rgba(255,255,255,0.1);"></div>
+                                     <sl-button size="small" variant="${this.isCropMode ? 'warning' : 'default'}" outline onclick="this.getRootNode().host.toggleCropMode()">
+                                        <sl-icon slot="prefix" name="${this.isCropMode ? 'check-lg' : 'crop'}"></sl-icon>
+                                        ${this.isCropMode ? 'Finish Crop Setup' : 'Activate Crop Tool'}
+                                     </sl-button>
+                                     ${this.isCropMode ? `
+                                        <div style="font-size:0.7rem; color:#f59e0b; text-align:center;">
+                                            Drag the box to move, use the handle to resize.
+                                        </div>
+                                     ` : ''}
                                 </div>
                             </sl-tab-panel>
                         </sl-tab-group>
@@ -503,6 +560,58 @@ class QpFilter extends HTMLElement {
                     console.log("[QP-Filter] Mirror Changed:", e.target.value);
                     this.updateSetting('mirror_type', e.target.value);
                 });
+            }
+
+            // Interactive Crop Box logic
+            const cropBox = overlay.querySelector('#crop-box-rect');
+            const handle = overlay.querySelector('.crop-handle');
+            const imgContainer = overlay.querySelector('.img-container');
+
+            if (cropBox && imgContainer) {
+                let isDragging = false;
+                let isResizing = false;
+                let startX, startY, startW, startH, startLeft, startTop;
+
+                cropBox.onmousedown = (e) => {
+                    if (e.target === handle) return;
+                    isDragging = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startLeft = this.cropBox.x;
+                    startTop = this.cropBox.y;
+                    e.preventDefault();
+                };
+
+                handle.onmousedown = (e) => {
+                    isResizing = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startW = this.cropBox.w;
+                    startH = this.cropBox.h;
+                    e.preventDefault();
+                    e.stopPropagation();
+                };
+
+                window.onmousemove = (e) => {
+                    if (!isDragging && !isResizing) return;
+                    const rect = imgContainer.getBoundingClientRect();
+                    const dx = ((e.clientX - startX) / rect.width) * 100;
+                    const dy = ((e.clientY - startY) / rect.height) * 100;
+
+                    if (isDragging) {
+                        this.cropBox.x = Math.max(0, Math.min(100 - this.cropBox.w, startLeft + dx));
+                        this.cropBox.y = Math.max(0, Math.min(100 - this.cropBox.h, startTop + dy));
+                    } else if (isResizing) {
+                        this.cropBox.w = Math.max(5, Math.min(100 - this.cropBox.x, startW + dx));
+                        this.cropBox.h = Math.max(5, Math.min(100 - this.cropBox.y, startH + dy));
+                    }
+                    this.updateCropOverlay();
+                };
+
+                window.onmouseup = () => {
+                    isDragging = false;
+                    isResizing = false;
+                };
             }
         }, 0);
 
