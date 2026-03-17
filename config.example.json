@@ -19,7 +19,8 @@
     "GEMINI_API_KEY": "your_gemini_key_here",
     "OPENAI_API_KEY": "your_openai_key_here",
     "CLAUDE_API_KEY": "your_claude_key_here",
-    "GROK_API_KEY": "your_grok_key_here",
+    "GROK_API_KEY": "xai-...",
+    "LLM_TIMEOUT": 120,
     "NEGATIVE_PROMPT": "deformed, ugly, blurry, pixelated, grainy, poorly drawn, artifacts, errors, duplicates, missing, inconsistent, unrealistic, bad anatomy, severed hands, severed heads, crossed eyes, poor quality, low resolution, washed out, overexposed, underexposed, noise, flat, lacking details, generic, amateur",
     "FORMATS": [
         {

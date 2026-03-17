@@ -68,7 +68,7 @@ class LlmAssistantManager:
             model = model_name or config.get("OLLAMA_MODEL", "llama3")
             payload = {"model": model, "messages": full_messages, "stream": False, "options": {"temperature": temperature}}
             try:
-                response = requests.post(url, json=payload, timeout=30)
+                response = requests.post(url, json=payload, timeout=config.get("LLM_TIMEOUT", 120))
                 response.raise_for_status()
                 raw_content = response.json().get("message", {}).get("content", "")
             except Exception as e:
@@ -80,7 +80,7 @@ class LlmAssistantManager:
             model = model_name or "local-model"
             payload = {"model": model, "messages": full_messages, "temperature": temperature, "stream": False}
             try:
-                response = requests.post(url, json=payload, timeout=30)
+                response = requests.post(url, json=payload, timeout=config.get("LLM_TIMEOUT", 120))
                 response.raise_for_status()
                 raw_content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
             except Exception as e:
@@ -100,7 +100,7 @@ class LlmAssistantManager:
                 contents.append({"role": role, "parts": [{"text": msg["content"]}]})
             payload = {"contents": contents, "generationConfig": {"temperature": temperature, "maxOutputTokens": 2048}}
             try:
-                response = requests.post(url, json=payload, timeout=30)
+                response = requests.post(url, json=payload, timeout=config.get("LLM_TIMEOUT", 120))
                 response.raise_for_status()
                 raw_content = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
             except Exception as e:
@@ -116,7 +116,7 @@ class LlmAssistantManager:
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {"model": model, "messages": full_messages, "temperature": temperature}
             try:
-                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                response = requests.post(url, headers=headers, json=payload, timeout=config.get("LLM_TIMEOUT", 120))
                 response.raise_for_status()
                 raw_content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
             except Exception as e:
@@ -145,7 +145,7 @@ class LlmAssistantManager:
                 "temperature": temperature
             }
             try:
-                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                response = requests.post(url, headers=headers, json=payload, timeout=config.get("LLM_TIMEOUT", 120))
                 response.raise_for_status()
                 raw_content = response.json().get("content", [{}])[0].get("text", "")
             except Exception as e:
@@ -161,7 +161,7 @@ class LlmAssistantManager:
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {"model": model, "messages": full_messages, "temperature": temperature}
             try:
-                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                response = requests.post(url, headers=headers, json=payload, timeout=config.get("LLM_TIMEOUT", 120))
                 response.raise_for_status()
                 raw_content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
             except Exception as e:
