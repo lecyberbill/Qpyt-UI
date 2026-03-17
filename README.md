@@ -1,4 +1,4 @@
-# Qpyt-UI V1.1.2 (Clipboard & Flux2)
+# Qpyt-UI V1.2.0 (MCP & LLM Assistant)
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -108,6 +108,36 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 git clone https://github.com/lecyberbill/Qpyt-UI.git
 cd Qpyt-UI
 ```
+## 🤖 Agentic Control (MCP)
+
+Qpyt-UI now supports the **MCP (Model Context Protocol)**, allowing agents like Claude Desktop, Cursor, or Antigravity to programmatically control the application.
+
+### 🚀 Launching the MCP Server
+Use the provided script in the root directory:
+```bash
+./start_mcp.bat
+```
+
+### ⚙️ Configuration for Claude Desktop
+Add the following to your `claude_desktop_config.json` file:
+```json
+{
+  "mcpServers": {
+    "qpyt-ui": {
+      "command": "D:/image_to_text/Qpyt_image_gen/start_mcp.bat",
+      "args": []
+    }
+  }
+}
+```
+
+### 🛠️ Available MCP Tools
+- `qpyt_generate`: Generate an image with prompt, model, and dimensions.
+- `qpyt_list_models`: List locally available models.
+- `qpyt_analyze`: Analyze an image to extract tags (Image-to-Prompt).
+- `qpyt_get_config`: Retrieve current application settings.
+
+---
 
 ### 3. Install Dependencies
 It is highly recommended to use a virtual environment:
@@ -147,7 +177,7 @@ python api/main.py
 Then open your browser at: **http://127.0.0.1:8000**
 
 ## Version History
-*   **V1.1.1**: **Flux 2 Img2Img & Snapping**. Added multimodal support for Flux 2 [Klein] and automated architectural snapping (Multiple of 16).
+*   **V1.2.0**: **MCP & LLM Assistant**. Integrated Model Context Protocol (MCP) for agentic control and added the multi-provider LLM Assistant with 17+ creative roles.
 *   **V1.1.2**: **Native Clipboard Paste**. Integrated direct image pasting from clipboard into the `QpImageInput` brick.
 *   **V1.0.0**: **Prompt Helper Integration**. Added a compact, categorized keyword assistant with local persistence database, searchable chips, and direct injection into the Prompt brick. 
 *   **V0.9.9**: **FLUX.2 Klein Support**, specialized weight mapping for Alpha/SFT checkpoints, automated guidance scaling (distilled models), and Qwen2-based text encoder integration.
