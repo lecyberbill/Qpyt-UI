@@ -117,3 +117,14 @@ class PromptEnhanceRequest(BaseModel):
 class PromptTranslateRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Texte à traduire (FR -> EN)")
 
+class LlmChatMessage(BaseModel):
+    role: str # user, assistant, system
+    content: str
+
+class LlmAssistantRequest(BaseModel):
+    provider: str = Field("local", description="local, ollama, lm-studio, gemini")
+    messages: List[LlmChatMessage]
+    model_name: Optional[str] = None
+    system_prompt: Optional[str] = None
+    temperature: float = 0.7
+

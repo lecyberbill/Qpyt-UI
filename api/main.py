@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -14,7 +15,7 @@ from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
     RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest, DepthRequest, NormalRequest,
     AudioGenerationRequest, SpriteRequest, VideoGenerationRequest,
-    PromptEnhanceRequest, PromptTranslateRequest
+    PromptEnhanceRequest, PromptTranslateRequest, LlmAssistantRequest
 )
 from api.framework import QpytUI
 from core.config import config
@@ -67,17 +68,19 @@ async def startup_event():
     # Auto-open browser
     global _browser_opened
     if not _browser_opened:
-        port = 8000 # Default port
-        # In a real scenario we'd parse sys.argv or config, but 8000 is the project standard
-        url = f"http://127.0.0.1:{port}/"
-        logger.info(f"Opening browser at {url}")
-        
-        # Give uvicorn a moment to start the socket
-        async def open_delayed():
-            await asyncio.sleep(1.5)
-            webbrowser.open(url)
+        # On lance le browser si on est sur Windows (nt) ou si une session graphique Linux est detectee
+        if os.name == 'nt' or os.environ.get("DISPLAY"):
+            port = 8000 # Default port
+            url = f"http://127.0.0.1:{port}/"
+            logger.info(f"Opening browser at {url}")
             
-        asyncio.create_task(open_delayed())
+            async def open_delayed():
+                await asyncio.sleep(1.5)
+                webbrowser.open(url)
+                
+            asyncio.create_task(open_delayed())
+        else:
+            logger.info("Headless environment (Appliance) detected, skipping auto-browser open.")
         _browser_opened = True
 
 # Hot Reload logic
@@ -348,6 +351,26 @@ async def translate_prompt(request: PromptTranslateRequest):
         return {"status": "success", "translated_text": result}
     except Exception as e:
         logger.error(f"Error translating prompt: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/prompt/assistant")
+async def assistant_prompt(request: LlmAssistantRequest):
+    """Chat with an external or local LLM to refine prompts."""
+    try:
+        from core.llm_assistant import LlmAssistantManager
+        messages_dict = [{"role": m.role, "content": m.content} for m in request.messages]
+        
+        result = await run_in_threadpool(
+            LlmAssistantManager.get_response,
+            provider=request.provider,
+            messages=messages_dict,
+            model_name=request.model_name,
+            system_prompt=request.system_prompt,
+            temperature=request.temperature
+        )
+        return {"status": "success", "content": result}
+    except Exception as e:
+        logger.error(f"Error in LLM assistant: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.delete("/brick/{brick_id}")

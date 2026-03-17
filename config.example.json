@@ -13,6 +13,13 @@
     "DEFAULT_MODEL": "animaPencilXL_v100.safetensors",
     "DEVICE": "cuda",
     "IMAGE_FORMAT": "webp",
+    "OLLAMA_URL": "http://localhost:11434/api/chat",
+    "OLLAMA_MODEL": "llama3",
+    "LM_STUDIO_URL": "http://localhost:1234/v1/chat/completions",
+    "GEMINI_API_KEY": "your_gemini_key_here",
+    "OPENAI_API_KEY": "your_openai_key_here",
+    "CLAUDE_API_KEY": "your_claude_key_here",
+    "GROK_API_KEY": "your_grok_key_here",
     "NEGATIVE_PROMPT": "deformed, ugly, blurry, pixelated, grainy, poorly drawn, artifacts, errors, duplicates, missing, inconsistent, unrealistic, bad anatomy, severed hands, severed heads, crossed eyes, poor quality, low resolution, washed out, overexposed, underexposed, noise, flat, lacking details, generic, amateur",
     "FORMATS": [
         {

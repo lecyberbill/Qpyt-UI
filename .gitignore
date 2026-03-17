@@ -18,6 +18,9 @@ workflows/*.json
 # Media/OS
 .DS_Store
 Thumbs.db
+qpyt_os_builder/
+distribution__inux_fiche_tech.md
+wifi.example.conf
 
 # Gemini/Agentic temp
 .gemini/

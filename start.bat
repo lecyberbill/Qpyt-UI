@@ -17,7 +17,7 @@ echo Accedez a l'app sur : http://127.0.0.1:8000/
 set TORCH_LOGS="+dynamo,inductor"
 set TORCH_COMPILE_DEBUG=1
 
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 pause
 ENDLOCAL

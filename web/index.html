@@ -175,6 +175,22 @@
                         <sl-switch id="cfg-email-enabled">Enable Email Notifications</sl-switch>
                     </div>
 
+                    <div style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 0.5rem; padding-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
+                        <p style="color: #64748b; font-size: 0.85rem; margin-top: 0;">AI Assistant Configuration (LLM)</p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <sl-input id="cfg-ollama-url" label="Ollama API URL" help-text="Default: http://localhost:11434/api/chat"></sl-input>
+                            <sl-input id="cfg-ollama-model" label="Ollama Model" help-text="Default: llama3"></sl-input>
+                        </div>
+                        
+                        <sl-input id="cfg-lm-studio-url" label="LM Studio API URL" help-text="Default: http://localhost:1234/v1/chat/completions"></sl-input>
+                        
+                        <sl-input id="cfg-gemini-api-key" label="Gemini API Key" password-toggle type="password" help-text="Required for Google Gemini provider"></sl-input>
+                        <sl-input id="cfg-openai-api-key" label="OpenAI (ChatGPT) API Key" password-toggle type="password"></sl-input>
+                        <sl-input id="cfg-claude-api-key" label="Claude (Anthropic) API Key" password-toggle type="password"></sl-input>
+                        <sl-input id="cfg-grok-api-key" label="Grok (xAI) API Key" password-toggle type="password"></sl-input>
+                    </div>
+
                     <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
                         <sl-button id="cfg-save-btn" variant="primary" style="width: 100%;">Save All
                             Settings</sl-button>
@@ -229,6 +245,7 @@
     <script type="module" src="/static/components/qp-batch-runner.js?v=44"></script>
     <script type="module" src="/static/components/qp-civitai.js?v=44"></script>
     <script type="module" src="/static/components/qp-image-blender.js?v=45"></script>
+    <script type="module" src="/static/components/qp-llm-assistant.js?v=45"></script>
     <script type="module" src="/static/app.js?v=44"></script>
 
     <!-- Hot Reload Script -->

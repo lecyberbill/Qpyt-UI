@@ -118,7 +118,7 @@ class ModelManager:
                     torch_dtype=torch.float16
                 ).to(config.DEVICE)
             
-            adapter_path = Path("G:/models/ip_adapter") / weight_name
+            adapter_path = Path(config.get('IP_ADAPTER_DIR', 'models/ip_adapter')) / weight_name
             if not adapter_path.exists(): 
                 print(f"[IP-Adapter] Error: {adapter_path} not found.")
                 return pipe

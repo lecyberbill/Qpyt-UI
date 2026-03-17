@@ -257,6 +257,15 @@ class QpytApp {
                 themeSelect.value = localStorage.getItem('qpyt_theme') || 'default';
             }
 
+            // LLM Settings
+            if (document.getElementById('cfg-ollama-url')) document.getElementById('cfg-ollama-url').value = this.settings.OLLAMA_URL || 'http://localhost:11434/api/chat';
+            if (document.getElementById('cfg-ollama-model')) document.getElementById('cfg-ollama-model').value = this.settings.OLLAMA_MODEL || 'llama3';
+            if (document.getElementById('cfg-lm-studio-url')) document.getElementById('cfg-lm-studio-url').value = this.settings.LM_STUDIO_URL || 'http://localhost:1234/v1/chat/completions';
+            if (document.getElementById('cfg-gemini-api-key')) document.getElementById('cfg-gemini-api-key').value = this.settings.GEMINI_API_KEY || '';
+            if (document.getElementById('cfg-openai-api-key')) document.getElementById('cfg-openai-api-key').value = this.settings.OPENAI_API_KEY || '';
+            if (document.getElementById('cfg-claude-api-key')) document.getElementById('cfg-claude-api-key').value = this.settings.CLAUDE_API_KEY || '';
+            if (document.getElementById('cfg-grok-api-key')) document.getElementById('cfg-grok-api-key').value = this.settings.GROK_API_KEY || '';
+
             if (jsonEditor) jsonEditor.value = JSON.stringify(this.settings, null, 4);
         };
 
@@ -302,7 +311,14 @@ class QpytApp {
                 NOTIFICATIONS: {
                     ...this.settings.NOTIFICATIONS,
                     EMAIL_ENABLED: document.getElementById('cfg-email-enabled').checked
-                }
+                },
+                OLLAMA_URL: document.getElementById('cfg-ollama-url').value,
+                OLLAMA_MODEL: document.getElementById('cfg-ollama-model').value,
+                LM_STUDIO_URL: document.getElementById('cfg-lm-studio-url').value,
+                GEMINI_API_KEY: document.getElementById('cfg-gemini-api-key').value,
+                OPENAI_API_KEY: document.getElementById('cfg-openai-api-key').value,
+                CLAUDE_API_KEY: document.getElementById('cfg-claude-api-key').value,
+                GROK_API_KEY: document.getElementById('cfg-grok-api-key').value
             };
             await this.saveConfiguration(newData, saveBtn);
         });

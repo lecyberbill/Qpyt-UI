@@ -16,6 +16,8 @@ huggingface-hub>=0.26.0
 scipy
 numpy
 pydub>=0.25.1
+compel>=2.0.2
+static-ffmpeg
 
 # Image Processing
 Pillow>=10.3.0
@@ -27,7 +29,7 @@ reportlab
 # Optimization
 xformers>=0.0.25
 optimum-quanto>=0.2.0
-triton-windows>=3.6.0
+triton>=3.0.0
 
 # NLP & Utilities
 sentencepiece
