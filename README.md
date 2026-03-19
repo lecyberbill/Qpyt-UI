@@ -126,11 +126,11 @@ Add the following to your `claude_desktop_config.json` file:
 {
   "mcpServers": {
     "qpyt-ui": {
-      "command": "D:/image_to_text/Qpyt_image_gen/.venv/Scripts/python.exe",
+      "command": "/path/to/Qpyt-UI/.venv/Scripts/python.exe",
       "args": ["api/mcp_server.py"],
-      "cwd": "D:/image_to_text/Qpyt_image_gen",
+      "cwd": "/path/to/Qpyt-UI",
       "env": {
-        "PYTHONPATH": "D:/image_to_text/Qpyt_image_gen"
+        "PYTHONPATH": "/path/to/Qpyt-UI"
       }
     }
   }
@@ -144,11 +144,11 @@ Add the following to your `claude_desktop_config.json` file:
 {
   "mcpServers": {
     "qpyt-ui": {
-      "command": "D:/image_to_text/Qpyt_image_gen/.venv/Scripts/python.exe",
+      "command": "/path/to/Qpyt-UI/.venv/Scripts/python.exe",
       "args": ["api/mcp_server.py"],
-      "cwd": "D:/image_to_text/Qpyt_image_gen",
+      "cwd": "/path/to/Qpyt-UI",
       "env": {
-        "PYTHONPATH": "D:/image_to_text/Qpyt_image_gen"
+        "PYTHONPATH": "/path/to/Qpyt-UI"
       }
     }
   }
