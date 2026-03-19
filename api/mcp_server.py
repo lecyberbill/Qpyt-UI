@@ -24,7 +24,17 @@ def list_available_models() -> List[str]:
     """
     Returns a list of all locally available Stable Diffusion / Flux models (.safetensors).
     """
-    return list_models()
+    all_models = []
+    # Collect models from all supported architectures
+    for m_type in ["sdxl", "flux", "sd3", "zimage"]:
+        try:
+            models = list_models(m_type)
+            if models:
+                all_models.extend(models)
+        except Exception as e:
+            logging.error(f"Error listing {m_type} models: {e}")
+            
+    return sorted(list(set(all_models)))
 
 @mcp.tool()
 async def generate_image(
@@ -38,34 +48,41 @@ async def generate_image(
 ) -> str:
     """
     Generates an image using the specified prompt and parameters.
-    Returns the path to the generated image.
+    Returns the absolute path to the generated image.
     """
-    import uuid
     from core.generator import ModelManager
     
-    # Load model if not already loaded or different
-    if model_name:
-        ModelManager.get_instance().load_model(model_name)
-    
-    # Generate unique filename
-    output_filename = f"mcp_{uuid.uuid4().hex[:8]}.png"
-    output_path = Path(config.OUTPUT_DIR) / output_filename
+    # Validate model_name against available models to avoid crashes
+    available_models = list_available_models()
+    if model_name and model_name not in available_models:
+        logging.warning(f"Requested model '{model_name}' not found. Falling back to default.")
+        model_name = None
     
     # Run generation
     try:
-        # Note: In a real scenario, we might want to use the queue manager, 
-        # but for direct MCP control, we call the generator directly.
-        image = generator_lib.generate(
+        # We call the ModelManager.generate directly.
+        # It handles model loading, device placement, and saving to disk.
+        result = ModelManager.generate(
             prompt=prompt,
+            model_name=model_name,
             width=width,
             height=height,
             num_inference_steps=steps,
             guidance_scale=guidance,
-            seed=seed
+            seed=None if seed == -1 else seed
         )
-        image.save(output_path)
-        return str(output_path.absolute())
+        
+        if result and isinstance(result, tuple):
+            rel_path, exec_time, params = result
+            # We return a local web URL (hosted by the Qpyt-UI FastAPI server on port 8000)
+            # This is much more reliable for an AI to present in a chat.
+            web_url = f"http://localhost:8000/outputs/{rel_path}"
+            return f"Image successfully generated. Local path: {rel_path}. Access it via: {web_url}"
+        else:
+            return "Error: Generation failed to return a valid result."
+            
     except Exception as e:
+        logging.error(f"Error during MCP image generation: {e}")
         return f"Error during generation: {str(e)}"
 
 @mcp.tool()
@@ -94,5 +111,12 @@ def get_current_config() -> str:
     return json.dumps(config.settings, indent=4)
 
 if __name__ == "__main__":
+    # Pre-warm the server by listing models (ensures config is loaded)
+    try:
+        logging.info("Pre-warming MCP server...")
+        list_available_models()
+    except:
+        pass
+        
     # Start the MCP server using stdio transport
     mcp.run()

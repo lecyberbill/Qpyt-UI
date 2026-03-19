@@ -118,24 +118,48 @@ Use the provided script in the root directory:
 ./start_mcp.bat
 ```
 
-### ⚙️ Configuration for Claude Desktop
+### ⚙️ Configuration
+
+#### Claude Desktop
 Add the following to your `claude_desktop_config.json` file:
 ```json
 {
   "mcpServers": {
     "qpyt-ui": {
-      "command": "D:/image_to_text/Qpyt_image_gen/start_mcp.bat",
-      "args": []
+      "command": "D:/image_to_text/Qpyt_image_gen/.venv/Scripts/python.exe",
+      "args": ["api/mcp_server.py"],
+      "cwd": "D:/image_to_text/Qpyt_image_gen",
+      "env": {
+        "PYTHONPATH": "D:/image_to_text/Qpyt_image_gen"
+      }
+    }
+  }
+}
+```
+
+#### LM Studio
+1. Go to the **Settings** (Gear icon) -> **MCP** tab.
+2. Click on **Edit mcp.json** and add:
+```json
+{
+  "mcpServers": {
+    "qpyt-ui": {
+      "command": "D:/image_to_text/Qpyt_image_gen/.venv/Scripts/python.exe",
+      "args": ["api/mcp_server.py"],
+      "cwd": "D:/image_to_text/Qpyt_image_gen",
+      "env": {
+        "PYTHONPATH": "D:/image_to_text/Qpyt_image_gen"
+      }
     }
   }
 }
 ```
 
 ### 🛠️ Available MCP Tools
-- `qpyt_generate`: Generate an image with prompt, model, and dimensions.
-- `qpyt_list_models`: List locally available models.
-- `qpyt_analyze`: Analyze an image to extract tags (Image-to-Prompt).
-- `qpyt_get_config`: Retrieve current application settings.
+- `generate_image`: Generate an image with prompt, model, and dimensions.
+- `list_available_models`: List locally available models (.safetensors).
+- `analyze_image_tags`: Analyze an image to extract tags (Image-to-Prompt).
+- `get_current_config`: Retrieve current application settings and paths.
 
 ---
 
