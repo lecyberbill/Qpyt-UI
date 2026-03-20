@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V1.1.3 (Smart Canvas & Photo Editor)
+**Current Version**: V1.3.0 (Sequential Auto-Chaining & Flux2)
 **Goal**: Visual excellence, auditory feedback, and robust email notifications.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -201,6 +201,8 @@ This document tracks architectural decisions, implemented features, and the road
 - **V1.1.1**: Flux 2 Img2Img multimodal support, architectural snapping (Multiple of 16), and robust parameter filtering.
 - **V1.1.2**: Native Clipboard Paste support for `QpImageInput` and unified image optimization pipeline.
 - **V1.1.3**: Smart Canvas features: Interactive Crop selection and Real-time Zoom in Photo Editor.
+- **V1.2.0**: **MCP & LLM Assistant**. Integrated Model Context Protocol (MCP) for agentic control and added the multi-provider LLM Assistant with 17+ creative roles.
+- **V1.3.0**: **Sequential Auto-Chaining**. Implemented a global toggle and visual link indicators for automated brick-to-brick execution flow.
 
 ---
 
