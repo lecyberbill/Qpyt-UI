@@ -1,6 +1,6 @@
 class QpCartridge extends HTMLElement {
     static get observedAttributes() {
-        return ['title', 'type', 'collapsed', 'brick-id'];
+        return ['title', 'type', 'collapsed', 'brick-id', 'chained'];
     }
 
     constructor() {
@@ -59,6 +59,40 @@ class QpCartridge extends HTMLElement {
                     flex-shrink: 0;
                     --brick-color: ${theme.border};
                     --brick-glow: ${theme.glow};
+                    position: relative;
+                }
+
+                :host([chained]) .cartridge {
+                    border-color: #06b6d4 !important; /* Cyan for chaining */
+                    box-shadow: 0 0 20px rgba(6, 182, 212, 0.4) !important;
+                }
+
+                .chain-badge {
+                    display: none;
+                    position: absolute;
+                    top: 8px; /* Moved inside */
+                    right: 8px; /* Moved inside */
+                    background: #06b6d4;
+                    color: white;
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 50%;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 14px;
+                    z-index: 100;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+                    animation: pulse-cyan 2s infinite;
+                }
+
+                :host([chained]) .chain-badge {
+                    display: flex;
+                }
+
+                @keyframes pulse-cyan {
+                    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7); }
+                    70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
+                    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
                 }
 
                 .cartridge {
@@ -145,6 +179,7 @@ class QpCartridge extends HTMLElement {
             </style>
 
             <div class="cartridge" id="main-cartridge" part="base">
+                <div class="chain-badge">🔗</div>
                 <div class="side-label drag-handle" id="toggle-btn" style="cursor: grab;" part="header">
                     <!-- Drag Handle Icon -->
                     <sl-icon name="grip-vertical" style="font-size: 20px; color: rgba(255,255,255,0.6); margin-top: 10px;"></sl-icon>

@@ -72,12 +72,16 @@
         #autoloader-trigger {
             display: none;
         }
+
+        #autoloader-trigger {
+            display: none;
+        }
     </style>
 </head>
 
 <body>
     <header>
-        <h1 id="app-title">Qpyt-UI V1.1.2 (Clipboard & Flux2)</h1>
+        <h1 id="app-title">Qpyt-UI V1.3.0 (Sequential Chaining & Flux2)</h1>
         <div style="color: #64748b; font-size: 0.9rem;">Quantum Pixel Yield Terminal - Keep it smart, keep it visual.
         </div>
     </header>
@@ -92,8 +96,13 @@
         <sl-icon name="save"></sl-icon>
     </sl-button>
 
-    <sl-button id="settings-trigger" circle size="large" title="Settings"
+    <sl-button id="autochain-trigger" circle size="large" variant="danger" title="Auto-Chain Modes (Sequential Execution)"
         style="position: fixed; bottom: 30px; left: 160px; z-index: 9999;">
+        <sl-icon name="link"></sl-icon>
+    </sl-button>
+
+    <sl-button id="settings-trigger" circle size="large" title="Settings"
+        style="position: fixed; bottom: 30px; left: 225px; z-index: 9999;">
         <sl-icon name="gear"></sl-icon>
     </sl-button>
 

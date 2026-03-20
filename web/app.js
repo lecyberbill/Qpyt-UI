@@ -3,6 +3,7 @@ class QpytApp {
         this.workflow = document.getElementById('main-workflow');
         this.titleEl = document.getElementById('app-title');
         this.lastImage = null; // Global track for last generated image (URL)
+        this.autoChain = localStorage.getItem('qpyt_autochain') === 'true';
     }
 
     async init() {
@@ -27,6 +28,9 @@ class QpytApp {
 
             // Setup Workflow Manager
             this.setupWorkflows();
+
+            // Setup Auto-Chaining
+            this.setupAutoChain();
 
             // Setup Drag & Drop
             this.setupDragAndDrop();
@@ -413,6 +417,70 @@ class QpytApp {
         });
     }
 
+    setupAutoChain() {
+        const trigger = document.getElementById('autochain-trigger');
+        if (!trigger) return;
+
+        const updateUI = () => {
+            const bricks = Array.from(this.workflow?.children || []);
+            if (this.autoChain) {
+                trigger.variant = 'success';
+                this.workflow?.classList.add('autochain-active');
+                bricks.forEach(el => {
+                    el.setAttribute('chained', 'true');
+                    // Deep sync for shadow DOM cartridges
+                    const inner = el.shadowRoot? el.shadowRoot.querySelector('qp-cartridge') : null;
+                    if (inner) inner.setAttribute('chained', 'true');
+                });
+            } else {
+                trigger.variant = 'danger';
+                this.workflow?.classList.remove('autochain-active');
+                bricks.forEach(el => {
+                    el.removeAttribute('chained');
+                    const inner = el.shadowRoot? el.shadowRoot.querySelector('qp-cartridge') : null;
+                    if (inner) inner.removeAttribute('chained');
+                });
+            }
+        };
+
+        updateUI();
+
+        trigger.addEventListener('click', () => {
+            this.autoChain = !this.autoChain;
+            localStorage.setItem('qpyt_autochain', this.autoChain);
+            updateUI();
+            this.notify(this.autoChain ? "Auto-Chain Enabled" : "Auto-Chain Disabled", "success");
+        });
+
+        // The Engine: Listen for completion of any brick
+        window.addEventListener('qpyt-output', (e) => {
+            if (!this.autoChain) return;
+
+            const sourceBrickId = e.detail?.brickId;
+            if (!sourceBrickId) return;
+
+            // Find the source element in the workflow
+            const sourceEl = this.workflow.querySelector(`[brick-id="${sourceBrickId}"]`);
+            if (!sourceEl) return;
+
+            // Find the NEXT brick (sibling)
+            const nextEl = sourceEl.nextElementSibling;
+            
+            if (nextEl && typeof nextEl.generate === 'function') {
+                console.log(`[Auto-Chain] Triggering next brick: ${nextEl.tagName} (ID: ${nextEl.getAttribute('brick-id')})`);
+                
+                // Small delay to let the UI breathe and ensure lastImage is propagated
+                setTimeout(() => {
+                    if (nextEl.isGenerating) {
+                        console.warn("[Auto-Chain] Next brick is already busy.");
+                        return;
+                    }
+                    nextEl.generate();
+                }, 800);
+            }
+        });
+    }
+
     async extractWorkflowFromImage(file) {
         try {
             this.notify(`Extracting workflow from ${file.name}...`, "info");
@@ -630,6 +698,17 @@ class QpytApp {
                             console.warn(`[App] Failed to apply props to ${brick.id}:`, propErr);
                         }
                     }
+
+                    // Auto-Chain Sync for new elements
+                    if (this.autoChain) {
+                        el.setAttribute('chained', 'true');
+                        // Use a small timeout to ensure shadowRoot is available and initialized
+                        setTimeout(() => {
+                            const inner = el.shadowRoot?.querySelector('qp-cartridge');
+                            if (inner) inner.setAttribute('chained', 'true');
+                        }, 100);
+                    }
+
                     this.workflow.appendChild(el);
                 }
             });

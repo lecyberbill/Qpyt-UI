@@ -1237,7 +1237,7 @@ class QpRender extends HTMLElement {
                     --track-color: rgba(255,255,255,0.1);
                 }
             </style>
-            <qp-cartridge title="${title}" type="generator" brick-id="${brickId}">
+            <qp-cartridge title="${title}${this.batchInfo || ''}" type="generator" brick-id="${brickId}" ${this.hasAttribute('collapsed') ? 'collapsed' : ''} ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="render-container">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
                         ${this.modelType !== 'qwen' ? `
@@ -2154,7 +2154,7 @@ class QpOutpaint extends QpRender {
                     accent-color: #3b82f6;
                 }
             </style>
-            <qp-cartridge title="${this.title}" icon="${this.icon}" type="generator" brick-id="${brickId}">
+            <qp-cartridge title="${this.title}" icon="${this.icon}" type="generator" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div style="padding: 0.5rem; display: flex; flex-direction: column; gap: 1rem;">
                     
                     <sl-select size="small" placeholder="Select Model" value="${this.selectedModel}" id="model-select" hoist>
@@ -2387,7 +2387,7 @@ class UpscalerV3 extends HTMLElement {
             <style>
                 .upscale-container { display: flex; flex-direction: column; gap: 0.8rem; padding: 0.5rem; }
             </style>
-            <qp-cartridge title="Tiled Upscaler" icon="aspect-ratio" type="generator" brick-id="${brickId}">
+            <qp-cartridge title="Tiled Upscaler" icon="aspect-ratio" type="generator" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="upscale-container">
                     <sl-select id="model-select" label="Upscaler Model" value="${this.selectedModel}" hoist>
                         ${this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')}
@@ -2492,7 +2492,7 @@ class QpImageOut extends HTMLElement {
                     padding: 2rem;
                 }
             </style>
-            <qp-cartridge title="Final Output" type="output" brick-id="${brickId}">
+            <qp-cartridge title="Final Output" type="output" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="out-container">
                     <div class="image-box" id="preview-box">
                         ${this.currentUrl ? (this.currentUrl.toLowerCase().endsWith('.mp4') ? `
@@ -2667,7 +2667,7 @@ class QpRembg extends HTMLElement {
                     color: #10b981;
                 }
             </style>
-            <qp-cartridge title="Background Removal" icon="scissors" type="generator" brick-id="${brickId}">
+            <qp-cartridge title="Background Removal" icon="scissors" type="generator" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="rembg-container">
                     <div class="status-badge">
                         <sl-icon name="info-circle" style="margin-right:0.5rem"></sl-icon>
@@ -2864,7 +2864,7 @@ class QpVectorize extends HTMLElement {
                     object-fit: contain;
                 }
             </style>
-            <qp-cartridge title="Vectorize (SVG)" icon="vector-pen" type="generator" brick-id="${brickId}">
+            <qp-cartridge title="Vectorize (SVG)" icon="vector-pen" type="generator" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="vec-container">
                     <sl-select id="mode-select" label="Drawing Mode" value="${this.selectedMode}" hoist>
                         <sl-option value="spline">Splines (Smooth curves)</sl-option>
@@ -2961,8 +2961,7 @@ class QpSaveToDisk extends HTMLElement {
         this.filenamePattern = patternInput.value;
         this.selectedFormat = formatSelect.value;
 
-        const imageSource = document.querySelector('qp-image-input');
-        let imageUrl = window.qpyt_app?.lastImage || "";
+        const imageUrl = window.qpyt_app?.lastImage || "";
 
         if (!imageUrl) {
             window.qpyt_app.notify("No image to save!", "warning");
@@ -3040,7 +3039,7 @@ class QpSaveToDisk extends HTMLElement {
                     border-radius: 4px;
                 }
             </style>
-            <qp-cartridge title="Save to Disk" icon="download" type="output" brick-id="${brickId}">
+            <qp-cartridge title="Save to Disk" icon="download" type="output" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="save-container">
                     <sl-input id="path-input" label="Export Directory" value="${this.exportPath}" help-text="Full path on your PC"></sl-input>
                     
@@ -3165,7 +3164,7 @@ class QpTranslator extends HTMLElement {
                     margin-bottom: 0.5rem;
                 }
             </style>
-            <qp-cartridge title="Translator (FR ➔ EN)" type="input" brick-id="${brickId}">
+            <qp-cartridge title="Translator (FR ➔ EN)" type="input" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="translator-container">
                     <sl-textarea id="fr-prompt" label="French Prompt" placeholder="Entrez votre prompt en français..." resize="auto" size="small"></sl-textarea>
                     
@@ -3297,7 +3296,7 @@ class QpStyles extends HTMLElement {
                     max-height: 300px;
                 }
             </style>
-            <qp-cartridge title="Styles (Fooocus)" type="input" icon="palette" brick-id="${brickId}">
+            <qp-cartridge title="Styles (Fooocus)" type="input" icon="palette" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="styles-container" id="selectors-grid">
                     ${[0, 1, 2, 3].map(i => `
                         <sl-select id="style-select-${i}" value="${this.selectedKeys[i]}" size="small" clearable placeholder="Select a style..." hoist>
@@ -3400,7 +3399,7 @@ class QpImg2Prompt extends HTMLElement {
             <style>
                 .analyzer-container { display: flex; flex-direction: column; gap: 1rem; }
             </style>
-            <qp-cartridge title="Image Analysis" type="input" brick-id="${brickId}">
+            <qp-cartridge title="Image Analysis" type="input" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="analyzer-container">
                     <sl-select id="task-select" value="${this.selectedTask}" label="Analysis Task" hoist>
                         <sl-option value="<DETAILED_CAPTION>">Detailed Caption</sl-option>
@@ -3503,7 +3502,7 @@ class QpLlmPrompter extends HTMLElement {
                     word-break: break-word;
                 }
             </style>
-            <qp-cartridge title="LLM Prompt Enhancer" type="input" brick-id="${brickId}">
+            <qp-cartridge title="LLM Prompt Enhancer" type="input" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="prompter-container">
                     <sl-textarea id="base-idea" label="Your Idea" placeholder="Enter a simple idea (e.g. a robot in a garden)..." resize="auto" size="small"></sl-textarea>
                     
@@ -3572,7 +3571,7 @@ class QpControlNet extends HTMLElement {
         const brickId = this.getAttribute('brick-id') || '';
 
         this.shadowRoot.innerHTML = `
-            <qp-cartridge title="ControlNet" type="tool" brick-id="${brickId}">
+            <qp-cartridge title="ControlNet" type="tool" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                      <!-- ControlNet Checkpoint -->
                     <sl-select id="cn-model-select" label="ControlNet Model" value="${this.selectedControlNet}" size="small" hoist>
