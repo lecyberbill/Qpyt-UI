@@ -1242,7 +1242,7 @@ class QpRender extends HTMLElement {
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
                         ${this.modelType !== 'qwen' ? `
                         <sl-select id="model-select" label="Checkpoint (.safetensors)" value="${this.selectedModel}" hoist style="width: 100%;">
-                            ${this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')}
+                            ${this.models.map(m => `<sl-option value="${typeof m === 'object' ? m.name : m}">[${typeof m === 'object' ? m.label : '???'}] ${typeof m === 'object' ? m.name : m}</sl-option>`).join('')}
                             ${this.models.length === 0 ? '<sl-option value="" disabled>No models found</sl-option>' : ''}
                         </sl-select>
                         ` : `
