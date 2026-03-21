@@ -110,7 +110,7 @@ async def hot_reload_watcher():
                     connected_clients.remove(client)
 
 # Default Qpyt-UI configuration
-app_ui = QpytUI(title="Qpyt - UI V1.3.0 (Sequential Chaining & Flux2)")
+app_ui = QpytUI(title="Qpyt - UI V1.3.1 (Architecture Detection & Flux Filtering)")
 app_ui.add_brick("qp-prompt")
 app_ui.add_brick("qp-settings")
 app_ui.add_brick("qp-render-sdxl")
@@ -403,10 +403,22 @@ async def get_models(model_type: str, path: str = None):
             return {"status": "success", "models": [], "message": f"Path '{path}' does not exist"}
         
         models = []
+        files = []
         for ext in ['*.safetensors', '*.ckpt', '*.gguf', '*.sft']:
-             models.extend([f.name for f in directory.glob(ext)])
+             files.extend(directory.glob(ext))
         
-        result = sorted(list(set(models)))
+        for f in files:
+            info = ModelManager._get_model_architecture(f)
+            # For custom paths, we might not want strict filtering by model_type 
+            # as the user specifically pointed to this folder.
+            # But let's at least provide the labels.
+            models.append({
+                "name": f.name,
+                "label": info['label'],
+                "arch": info['arch']
+            })
+        
+        result = sorted(models, key=lambda x: x['name'])
         logger.info(f"[Debug] Found {len(result)} models in {directory}")
         return {"status": "success", "models": result}
     else:

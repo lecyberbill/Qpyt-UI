@@ -819,11 +819,11 @@ class QpRender extends HTMLElement {
             if (result.status === 'success') {
                 this.models = result.models;
                 if (this.models.length > 0 && !this.selectedModel) {
-                    this.selectedModel = this.models[0];
+                    this.selectedModel = this.models[0].name;
                 }
                 const select = this.shadowRoot.getElementById('model-select');
                 if (select) {
-                    select.innerHTML = this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('');
+                    select.innerHTML = this.models.map(m => `<sl-option value="${m.name}">[${m.label}] ${m.name}</sl-option>`).join('');
                     if (this.models.length === 0) {
                         select.innerHTML = '<sl-option value="" disabled>No models found</sl-option>';
                     }

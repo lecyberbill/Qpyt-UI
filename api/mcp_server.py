@@ -42,15 +42,32 @@ async def generate_image(
     model_name: Optional[str] = None, 
     width: int = 1024, 
     height: int = 1024, 
-    steps: int = 30, 
+    steps: int = 20, 
     guidance: float = 7.0,
     seed: int = -1
 ) -> str:
     """
     Generates an image using the specified prompt and parameters.
-    Returns the absolute path to the generated image.
+    
+    GUIDELINES FOR 'steps':
+    - For 'Turbo', 'Schnell', or 'Klein' models: Use 4 to 10 steps max.
+    - For standard 'SDXL' or 'Juggernaut' models: Use 20 to 30 steps.
+    - DO NOT exceed 50 steps as it may cause a timeout.
+    
+    Returns the absolute path to the generated image and a local web URL.
     """
     from core.generator import ModelManager
+    
+    # Auto-cap steps for "Fast" models to prevent timeouts
+    fast_keywords = ["turbo", "schnell", "klein", "lightning", "hyper"]
+    is_fast_model = any(k in (model_name or "").lower() for k in fast_keywords)
+    
+    if is_fast_model and steps > 12:
+        logging.info(f"Auto-capping steps for fast model '{model_name}': {steps} -> 8")
+        steps = 8
+    elif steps > 50:
+        logging.info(f"Capping excessive steps to 50: {steps} -> 50")
+        steps = 50
     
     # Validate model_name against available models to avoid crashes
     available_models = list_available_models()

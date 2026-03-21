@@ -1,4 +1,4 @@
-# Qpyt-UI V1.3.0 (Sequential Chaining & Flux2)
+# Qpyt-UI V1.3.1 (Flux.1 / SDXL / SD 3.5 / Florence-2)
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -202,7 +202,7 @@ python api/main.py
 Then open your browser at: **http://127.0.0.1:8000**
 
 ## Version History
-*   **V1.3.0**: **Sequential Auto-Chaining**. Added global on/off toggle and visual link indicators for automated brick-to-brick execution (from left to right in the DOM).
+*   **V1.3.1**: **Model Architecture Detection**. Automatic Safetensors/GGUF sniffing with strict per-brick filtering and abbreviated UI labels (XL, FXS, K4B).
 *   **V1.2.0**: **MCP & LLM Assistant**. Integrated Model Context Protocol (MCP) for agentic control and added the multi-provider LLM Assistant with 17+ creative roles.
 *   **V1.1.2**: **Native Clipboard Paste**. Integrated direct image pasting from clipboard into the `QpImageInput` brick.
 *   **V1.0.0**: **Prompt Helper Integration**. Added a compact, categorized keyword assistant with local persistence database, searchable chips, and direct injection into the Prompt brick. 

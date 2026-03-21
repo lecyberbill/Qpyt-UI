@@ -252,6 +252,71 @@ class ModelManager:
 
 
     @classmethod
+    def _get_model_architecture(cls, model_path: Path):
+        """
+        Inspects the safetensors metadata/tensors or filename to determine the base architecture.
+        Returns a dict: {'arch': 'sdxl'|'flux'|'flux2'|'sd3'|'sd15'|'unknown', 'label': 'XL'|'FX'|'K4B'|...}
+        """
+        arch = "unknown"
+        label = "???"
+        fname = model_path.name.lower()
+
+        # Phase 1: Metadata/Tensor Sniffing (Safetensors only)
+        if model_path.suffix == ".safetensors":
+            try:
+                with safe_open(model_path, framework="pt", device="cpu") as f:
+                    metadata = f.metadata()
+                    
+                    if metadata:
+                        base_model = metadata.get("ss_base_model_version", "").lower()
+                        if "sdxl" in base_model: arch, label = "sdxl", "XL"
+                        elif "flux.1-schnell" in base_model: arch, label = "flux", "FXS"
+                        elif "flux.1-dev" in base_model: arch, label = "flux", "FXD"
+                        elif "flux" in base_model: arch, label = "flux", "FX"
+                        elif "v1-5" in base_model or "sd15" in base_model: arch, label = "sd15", "1.5"
+                        elif "sd3" in base_model: arch, label = "sd3", "SD3"
+
+                    # Phase 2: Topology Sniffing (if unknown or flux)
+                    if arch == "unknown" or arch == "flux":
+                        all_keys = f.keys()
+                        
+                        # Flux Detection (Double Blocks count)
+                        double_blocks = [k for k in all_keys if "double_blocks." in k]
+                        if double_blocks:
+                            nums = []
+                            for k in double_blocks:
+                                parts = k.split("double_blocks.")[1].split(".")
+                                if parts[0].isdigit(): nums.append(int(parts[0]))
+                            if nums:
+                                num_double = max(nums) + 1
+                                if num_double == 19: arch = "flux"
+                                else: arch, label = "flux2", "K4B"
+                        
+                        # Other architectures
+                        if arch == "unknown":
+                            if any("conditioner.embedders.0.transformer.text_model" in k for k in all_keys): arch, label = "sdxl", "XL"
+                            elif any("cond_stage_model.transformer.text_model" in k for k in all_keys): arch, label = "sd15", "1.5"
+                            elif any("transformer_blocks.0" in k for k in all_keys): arch, label = "sd3", "SD3"
+
+            except Exception as e:
+                print(f"[Model Check] Error inspecting {model_path}: {e}")
+
+        # Phase 3: Filename Sniffing (Fallback for unknowns or GGUF)
+        if arch == "unknown" or (arch == "flux" and label == "FX"):
+            if "flux2" in fname or "klein" in fname: arch, label = "flux2", "K4B"
+            elif "flux" in fname:
+                arch = "flux"
+                if "schnell" in fname: label = "FXS"
+                elif "dev" in fname: label = "FXD"
+                elif label == "???": label = "FX"
+            elif "sdxl" in fname: arch, label = "sdxl", "XL"
+            elif "sd3.5" in fname: arch, label = "sd3", "S35"
+            elif "sd3" in fname: arch, label = "sd3", "SD3"
+            elif "sd15" in fname or "v1-5" in fname: arch, label = "sd15", "1.5"
+
+        return {"arch": arch, "label": label}
+
+    @classmethod
     def _get_lora_architecture(cls, lora_path: Path):
         """
         Inspects the safetensors metadata/tensors to determine if it's SD 1.5 or SDXL/Flux.
@@ -2051,37 +2116,12 @@ class ModelManager:
 
 
 def list_models(model_type: str) -> list:
-    """Lists available model files for a given type."""
+    """Lists available model files for a given type, filtered by architecture."""
     if model_type in ['flux', 'flux2']:
         directory = Path(config.get('FLUX_MODELS_DIR', ''))
     elif model_type in ['sd3', 'sd3_5_turbo']:
         directory = Path(config.get('SD3_MODELS_DIR', ''))
     elif model_type == 'zimage':
-        # For Z-Image, we list the PARENT directories if they are treated as models, 
-        # BUT based on our loading logic we treat the .safetensors file as the entry point?
-        # Actually our loading logic (lines 711+) takes 'model_path' as the base dir.
-        # But list_models usually lists FILES. 
-        # Let's list the zIMAGE_MODELS_DIR content. 
-        # Since the user has distinct files for transformer/vae/text_encoder in one folder,
-        # we might want to list "folders" or just a dummy entry?
-        # Wait, the user said they have "G:\models\zit\qwen..." etc.
-        # In our Preset, "selectedModel" is "z-image-turbo".
-        # If we return "z-image-turbo", the frontend will pick it.
-        # Let's return subdirectory names or just the files if they are self-contained.
-        # Given the "Hybrid Loading Logic", we pointed to "model_path" as the BASE DIR in get_pipeline.
-        # So we should probably return a list of valid 'configurations' or just let the user pick the folder?
-        # A simple approach for now: List the ZIMAGE_MODELS_DIR itself if it's the model "name", or list subdirectories.
-        # User config preset says: "selectedModel": "z-image-turbo".
-        # If "z-image-turbo" is a folder inside "G:\models\zit", then we list folders.
-        # If "G:\models\zit" contains the files directly, then "z-image-turbo" might be a dummy name.
-        # Let's assume we list subdirectories as model names OR specific .safetensors if single file.
-        # Given the complex loading, let's look at what get_pipeline expects.
-        # get_pipeline(..., model_path, ...) -> if zimage: "Loading ... from {model_path} (Base Dir)..."
-        # And config.ZIMAGE_MODELS_DIR is "G:\models\zit". 
-        # If we pass "z-image-turbo", the path becomes "G:\models\zit\z-image-turbo".
-        # If the user put files directly in "G:\models\zit", then we might need to pass "." or just handle it.
-        # Let's assume the user has a subfolder "z-image-turbo" OR we support files.
-        # Let's list subdirectories first.
         directory = Path(config.get('ZIMAGE_MODELS_DIR', ''))
     else:
         directory = Path(config.MODELS_DIR)
@@ -2089,12 +2129,34 @@ def list_models(model_type: str) -> list:
     if not directory or not directory.exists():
         return []
     
-    # Looking for .safetensors, .ckpt and .gguf
     models = []
+    # Search for all supported extensions
+    files = []
     for ext in ['*.safetensors', '*.ckpt', '*.gguf', '*.sft']:
-        models.extend([f.name for f in directory.glob(ext)])
+        files.extend(directory.glob(ext))
     
-    return sorted(models)
+    for f in files:
+        # Detect architecture to filter
+        info = ModelManager._get_model_architecture(f)
+        
+        # Mapping compatibility
+        is_compatible = False
+        if model_type == 'sdxl' and info['arch'] == 'sdxl': is_compatible = True
+        elif model_type == 'flux' and info['arch'] == 'flux': is_compatible = True
+        elif model_type == 'flux2' and info['arch'] == 'flux2': is_compatible = True
+        elif model_type in ['sd3', 'sd3_5_turbo'] and info['arch'] in ['sd3', 'sd3_5']: is_compatible = True
+        elif model_type == 'img2img' and info['arch'] == 'sdxl': is_compatible = True # Default img2img to sdxl
+        elif info['arch'] == 'unknown': is_compatible = True # Fallback: return everything unknown to be safe
+        
+        if is_compatible:
+            models.append({
+                "name": f.name,
+                "label": info['label'],
+                "arch": info['arch']
+            })
+    
+    # Sort by name
+    return sorted(models, key=lambda x: x['name'])
 
 def list_vaes() -> list:
     """Lists available VAE files."""

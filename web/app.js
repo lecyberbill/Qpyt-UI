@@ -198,22 +198,18 @@ class QpytApp {
 
                 if (data.status === 'success') {
                     // Update options
-                    select.innerHTML = data.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('');
+                    select.innerHTML = data.models.map(m => `<sl-option value="${m.name}">[${m.label}] ${m.name}</sl-option>`).join('');
 
                     // Force a small delay to let Shoelace register the new options
                     requestAnimationFrame(() => {
                         const currentValue = this.settings[settingKey];
-                        if (data.models.includes(currentValue)) {
+                        if (data.models.some(m => m.name === currentValue)) {
                             select.value = currentValue;
                         }
                     });
-                    // Optional: select first one if nothing selected? No, stay neutral.
-                    // This condition was originally an `else if` but is now separate due to the requestAnimationFrame.
-                    // If the above `requestAnimationFrame` didn't set a value, this might still apply.
-                    // However, the user's provided snippet removed the `else` and placed it outside the `if (data.status === 'success')` block.
-                    // To maintain syntactic correctness and the spirit of the change, I'm placing it here as a separate check.
+                    
                     if (data.models.length > 0 && !select.value) {
-                        // No action, as per original comment.
+                        // No action
                     }
                 }
             } catch (e) {
