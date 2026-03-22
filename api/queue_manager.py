@@ -51,8 +51,10 @@ class QueueManager:
                 pass
         print("[QueueManager] Worker stopped.")
 
-    async def add_task(self, task_type: str, func: Callable, *args, **kwargs) -> str:
-        task_id = str(uuid.uuid4())
+    async def add_task(self, task_type: str, func: Callable, *args, task_id: Optional[str] = None, **kwargs) -> str:
+        if task_id is None:
+            task_id = str(uuid.uuid4())
+        
         task = TaskStatus(
             task_id=task_id,
             status="PENDING",

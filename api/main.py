@@ -15,7 +15,7 @@ from api.models import (
     ImageGenerationRequest, ImageGenerationResponse, UpscaleRequest, 
     RembgRequest, SaveToDiskRequest, InpaintRequest, OutpaintRequest, FilterRequest, DepthRequest, NormalRequest,
     AudioGenerationRequest, SpriteRequest, VideoGenerationRequest,
-    PromptEnhanceRequest, PromptTranslateRequest, LlmAssistantRequest
+    PromptEnhanceRequest, PromptTranslateRequest, LlmAssistantRequest, LoraTrainRequest
 )
 from api.framework import QpytUI
 from core.config import config
@@ -26,6 +26,7 @@ from core.translator import TranslationManager
 from core.llm_prompter import LlmPrompterManager
 from core.notifier import Notifier
 from core.filters import ImageEditor
+from core.trainer import LoRATrainer
 from api.monitor import router as monitor_router
 from starlette.concurrency import run_in_threadpool
 from fastapi import UploadFile, File, Form
@@ -1121,5 +1122,39 @@ async def add_prompt_keyword(request: Request):
         return {"status": "success", "message": f"Keyword '{keyword}' added to '{category_id}'."}
     except Exception as e:
         logger.error(f"Error adding prompt keyword: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/lora/train")
+async def train_lora_endpoint(request: LoraTrainRequest):
+    try:
+        queue_mgr = QueueManager.get_instance()
+        
+        # Define a wrapper to pass the progress callback correctly
+        async def run_training(tid, **kwargs):
+            def cb(p):
+                task = queue_mgr.get_task(tid)
+                if task: task.progress = p
+            
+            # Loop in thread if it's blocking
+            return await run_in_threadpool(LoRATrainer.train_sdxl_lora, **kwargs, progress_callback=cb)
+
+        # We need the task_id beforehand or use a placeholder
+        temp_id = str(uuid.uuid4())
+        task_id = await queue_mgr.add_task(
+            "lora_train",
+            run_training,
+            task_id=temp_id, 
+            tid=temp_id, 
+            input_dir=request.input_dir,
+            output_name=request.output_name,
+            concept_name=request.concept_name,
+            steps=request.steps,
+            lr=request.lr,
+            rank=request.rank,
+            batch_size=request.batch_size
+        )
+        return {"status": "success", "task_id": task_id}
+    except Exception as e:
+        logger.error(f"LoRA Train submission error: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 

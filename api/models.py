@@ -128,3 +128,12 @@ class LlmAssistantRequest(BaseModel):
     system_prompt: Optional[str] = None
     temperature: float = 0.7
 
+class LoraTrainRequest(BaseModel):
+    input_dir: str = Field(..., description="Dossier contenant les images d'entraînement")
+    output_name: str = Field(..., description="Nom du fichier LoRA en sortie")
+    concept_name: str = Field(..., description="Mot déclencheur (ex: 'ohwx style', 'sks actor')")
+    steps: int = Field(1000, ge=1, le=10000)
+    lr: float = Field(1e-4, ge=1e-6, le=1e-2)
+    rank: int = Field(16, ge=4, le=128)
+    batch_size: int = Field(1, ge=1, le=8)
+

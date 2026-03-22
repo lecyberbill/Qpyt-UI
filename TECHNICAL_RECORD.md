@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V1.3.1 (Architecture Detection & Flux Filtering)
+**Current Version**: V1.4.0 (LoRA Trainer SDXL)
 **Goal**: Visual excellence, auditory feedback, and robust email notifications.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -204,6 +204,7 @@ This document tracks architectural decisions, implemented features, and the road
 - **V1.2.0**: **MCP & LLM Assistant**. Integrated Model Context Protocol (MCP) for agentic control and added the multi-provider LLM Assistant with 17+ creative roles.
 - **V1.3.0**: **Sequential Auto-Chaining**. Implemented a global toggle and visual link indicators for automated brick-to-brick execution flow.
 - **V1.3.1**: **Model Architecture Detection**. Automatic Safetensors/GGUF sniffing with strict per-brick filtering and abbreviated UI labels (XL, FXS, K4B).
+- **V1.4.0**: **LoRA Trainer (SDXL)**. One-click LoRA training with auto-crop, auto-caption (Florence-2), and background Job Queue integration.
 
 ---
 
