@@ -63,40 +63,78 @@ class LoRADataset(Dataset):
 class LoRATrainer:
     @staticmethod
     def prepare_dataset(input_dir, concept_name, progress_callback=None):
-        """Prepares images (crop/resize) and captions them."""
+        """Prepares images (crop/resize) and captions them in a 'prepared' subfolder."""
         input_path = Path(input_dir)
         if not input_path.exists():
             raise Exception(f"Input directory {input_dir} not found.")
 
-        # 1. Create staging area if needed
-        # (For now we'll process in place or in a 'prepared' subfolder)
+        # 1. Create staging area
+        prepared_path = input_path / "prepared"
+        prepared_path.mkdir(exist_ok=True)
         
         images = []
         for ext in ["*.png", "*.jpg", "*.jpeg", "*.webp"]:
             images.extend(list(input_path.glob(ext)))
         
         total = len(images)
-        logger.info(f"[Trainer] Preparing {total} images...")
+        if total == 0:
+            raise Exception(f"No images found in {input_dir}")
+            
+        logger.info(f"[Trainer] Preparing {total} images into {prepared_path}...")
+
+        # Setup transforms for physical preparation
+        prep_transform = transforms.Compose([
+            transforms.Resize(1024, interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.CenterCrop(1024),
+        ])
 
         for i, img_path in enumerate(images):
             if progress_callback:
-                progress_callback(i / total * 30.0) # 0-30% for prep
+                progress_callback(i / total * 30.0, message=f"Preparing image {i+1}/{total}: {img_path.name}") # 0-30% for prep
 
+            # Target paths in prepared folder
+            target_img_path = prepared_path / f"{img_path.stem}.png"
+            target_cap_path = prepared_path / f"{img_path.stem}.txt"
+
+            # 1. Process Image (if not already in prepared or to ensure 1024x1024)
+            try:
+                with Image.open(img_path) as img:
+                    img = img.convert("RGB")
+                    prepared_img = prep_transform(img)
+                    prepared_img.save(target_img_path, "PNG")
+            except Exception as e:
+                logger.error(f"[Trainer] Failed to process image {img_path}: {e}")
+                continue
+
+            # 2. Handle Caption
+            caption = ""
+            # Check source dir for existing caption
+            source_cap = img_path.with_suffix(".txt")
+            if source_cap.exists():
+                with open(source_cap, "r", encoding="utf-8") as f:
+                    caption = f.read().strip()
+            
             # Auto-caption if missing
-            cap_path = img_path.with_suffix(".txt")
-            if not cap_path.exists():
+            if not caption:
                 logger.info(f"[Trainer] Captioning {img_path.name}...")
-                img = Image.open(img_path)
-                caption = analyze_image(img, task="<DETAILED_CAPTION>")
+                with Image.open(target_img_path) as img:
+                    caption = analyze_image(img, task="<DETAILED_CAPTION>")
+                
                 # Add concept word if not present
                 if concept_name.lower() not in caption.lower():
                     caption = f"{concept_name}, {caption}"
                 
-                with open(cap_path, "w", encoding="utf-8") as f:
+                # Save to source too for future use? Let's keep source clean and just save to prepared.
+                # Actually, user might want to edit it later. Let's save to BOTH if caption was missing.
+                with open(source_cap, "w", encoding="utf-8") as f:
                     f.write(caption)
 
-        logger.info("[Trainer] Dataset preparation complete.")
-        return True
+            # Always save to prepared folder
+            with open(target_cap_path, "w", encoding="utf-8") as f:
+                f.write(caption)
+
+        logger.info(f"[Trainer] Dataset preparation complete in {prepared_path}")
+        return str(prepared_path)
 
     @staticmethod
     def train_sdxl_lora(
@@ -104,15 +142,16 @@ class LoRATrainer:
         output_name, 
         concept_name, 
         steps=1000, 
-        lr=1e-4, 
+        lr=4e-5, 
         rank=16, 
         batch_size=1,
         progress_callback=None
     ):
         """Train a LoRA on SDXL UNet."""
         try:
-            # 1. Prepare Dataset
-            LoRATrainer.prepare_dataset(input_dir, concept_name, progress_callback)
+            # 1. Prepare Dataset (returns actual training path)
+            train_path = LoRATrainer.prepare_dataset(input_dir, concept_name, progress_callback)
+            input_dir = train_path # Use the prepared subfolder for training
 
             # 2. Setup Device & Dtypes
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -128,7 +167,8 @@ class LoRATrainer:
             text_encoder_one = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", torch_dtype=weight_dtype).to(device)
             text_encoder_two = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", torch_dtype=weight_dtype).to(device)
             
-            vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=weight_dtype).to(device)
+            # VAE is very unstable in fp16 on SDXL, forcing fp32
+            vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32).to(device)
             unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=weight_dtype).to(device)
             noise_scheduler = DDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
 
@@ -163,7 +203,7 @@ class LoRATrainer:
 
             # 6. Data Loader
             # Custom loader for dual tokenizers
-            dataset = LoRATataset(input_dir, tokenizer_one, size=1024)
+            dataset = LoRADataset(input_dir, tokenizer_one, size=1024)
             dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
             # 7. Training Loop
@@ -176,7 +216,8 @@ class LoRATrainer:
                     
                     optimizer.zero_grad()
                     
-                    pixel_values = batch["pixel_values"].to(device, dtype=weight_dtype)
+                    # Keep pixels in fp32 for VAE, UNet will use weight_dtype
+                    pixel_values = batch["pixel_values"].to(device, dtype=torch.float32)
                     input_ids_one = batch["input_ids"].to(device)
                     # For simplicity, we assume same text for both encoders in this V1
                     input_ids_two = tokenizer_two(
@@ -188,6 +229,7 @@ class LoRATrainer:
                     with torch.no_grad():
                         latents = vae.encode(pixel_values).latent_dist.sample()
                         latents = latents * vae.config.scaling_factor
+                        latents = latents.to(weight_dtype)
 
                         # Encode text
                         prompt_embeds_one = text_encoder_one(input_ids_one, output_hidden_states=True)
@@ -221,19 +263,19 @@ class LoRATrainer:
 
                     global_step += 1
                     if progress_callback and global_step % 10 == 0:
-                        progress_callback(30.0 + (global_step / steps * 70.0))
+                        progress_callback(30.0 + (global_step / steps * 70.0), message=f"Training: Step {global_step}/{steps} - Loss: {loss.item():.4f}")
                 
                 logger.info(f"[Trainer] Step {global_step}/{steps} - Loss: {loss.item():.4f}")
 
             # 8. Save result as Safetensors
             from safetensors.torch import save_file
+            from peft import get_peft_model_state_dict
             out_path = Path(config.LORAS_DIR) / f"{output_name}.safetensors"
             
-            # Extract LoRA weights from PEFT model
-            state_dict = unet.state_dict()
-            lora_dict = {k: v for k, v in state_dict.items() if "lora_" in k}
+            # Extract LoRA weights from PEFT model properly
+            lora_state_dict = get_peft_model_state_dict(unet)
             
-            save_file(lora_dict, str(out_path))
+            save_file(lora_state_dict, str(out_path))
             logger.info(f"[Trainer] LoRA saved to {out_path}")
 
             return {"status": "success", "lora_path": str(out_path), "steps": global_step}

@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V1.4.0 (LoRA Trainer SDXL)
+**Current Version**: V1.4.1 (LoRA Trainer Refined)
 **Goal**: Visual excellence, auditory feedback, and robust email notifications.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -205,6 +205,7 @@ This document tracks architectural decisions, implemented features, and the road
 - **V1.3.0**: **Sequential Auto-Chaining**. Implemented a global toggle and visual link indicators for automated brick-to-brick execution flow.
 - **V1.3.1**: **Model Architecture Detection**. Automatic Safetensors/GGUF sniffing with strict per-brick filtering and abbreviated UI labels (XL, FXS, K4B).
 - **V1.4.0**: **LoRA Trainer (SDXL)**. One-click LoRA training with auto-crop, auto-caption (Florence-2), and background Job Queue integration.
+- **V1.4.1**: **Trainer Refinements & Stability**. Improved UI with phase distinction, added automatic SDXL Base Model check, and fixed critical `Loss: nan` issues by forcing VAE to float32. Improved LoRA export compatibility.
 
 ---
 

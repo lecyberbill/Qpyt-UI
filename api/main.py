@@ -1124,6 +1124,37 @@ async def add_prompt_keyword(request: Request):
         logger.error(f"Error adding prompt keyword: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
+@app.get("/lora/check-base-model")
+async def check_base_model():
+    """Check if the SDXL base model is available locally."""
+    model_id = config.get("SDXL_BASE_MODEL", "stabilityai/stable-diffusion-xl-base-1.0")
+    try:
+        import os
+        from huggingface_hub import constants
+        # Standard HF cache path for models
+        repo_folder = "models--" + model_id.replace("/", "--")
+        repo_path = os.path.join(constants.HF_HUB_CACHE, repo_folder)
+        exists = os.path.exists(repo_path)
+        return {"status": "success", "model_id": model_id, "exists": exists}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/lora/download-base-model")
+async def download_base_model():
+    """Trigger background download of the SDXL base model."""
+    model_id = config.get("SDXL_BASE_MODEL", "stabilityai/stable-diffusion-xl-base-1.0")
+    queue_mgr = QueueManager.get_instance()
+    
+    async def run_download(tid, **kwargs):
+        from huggingface_hub import snapshot_download
+        # This will download the model to the default HF cache
+        await run_in_threadpool(snapshot_download, repo_id=model_id)
+        return {"status": "success", "message": f"Model {model_id} downloaded."}
+
+    task_id = await queue_mgr.add_task("model_download", run_download)
+    return {"status": "success", "task_id": task_id}
+
+
 @app.post("/lora/train")
 async def train_lora_endpoint(request: LoraTrainRequest):
     try:
@@ -1131,9 +1162,15 @@ async def train_lora_endpoint(request: LoraTrainRequest):
         
         # Define a wrapper to pass the progress callback correctly
         async def run_training(tid, **kwargs):
-            def cb(p):
+            def cb(p, message=None):
                 task = queue_mgr.get_task(tid)
-                if task: task.progress = p
+                if task: 
+                    task.progress = p
+                    if message:
+                        # Initialize result dict if needed
+                        if not isinstance(task.result, dict):
+                            task.result = {}
+                        task.result["status_message"] = message
             
             # Loop in thread if it's blocking
             return await run_in_threadpool(LoRATrainer.train_sdxl_lora, **kwargs, progress_callback=cb)
