@@ -1,4 +1,4 @@
-# Qpyt-UI V1.3.1 (Flux.1 / SDXL / SD 3.5 / Florence-2)
+# Qpyt-UI V1.4.1 (SDXL LoRA Trainer / Flux.1 / SD 3.5)
 
 **Advanced Modular Interface for Generative AI**
 *Powered by Diffusers, Florence-2, Qwen2.5, and Web Components.*
@@ -16,10 +16,10 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 - **AI Audio Cues**: Real-time sound feedback for generations, completions, and errors.
 - **Unified Lightbox**: Fast, immersive fullscreen preview for all history and output bricks.
 
-### 🎨 Generative Imaging
+### 🎨 Generative Imaging & Training [NEW]
+- **SDXL LoRA Trainer**: One-click local training with auto-cropping (1024x1024), Florence-2 auto-captioning, and VAE-fp32 stability.
 - **Multi-Engine Support**: Seamlessly switch between **SDXL**, **FLUX.1-Schnell**, **SD 3.5 Turbo**, and **FLUX.2-Klein**.
-- **Lightning Generation**: Optimized NF4/T5-NF4 pipelines and specialized **Flux 2 Klein 4B** support for high-speed generation with reduced VRAM footprint.
-- **Tiled Upscaler**: High-fidelity upscaling (up to 4K+) using tiled diffusion to minimize VRAM usage.
+- **Lightning Generation**: Optimized NF4/T5-NF4 pipelines and specialized **Flux 2 Klein 4B** support.
 
 ### 🛠️ Advanced Editing Tools
 - **Deep Inpainting**: Context-aware masking and regeneration.
@@ -73,6 +73,7 @@ Qpyt-UI is a **Python-Driven Modular Framework** designed for high-performance i
 *   **Img2Img Refiner** (`qp-img2img`): refine an existing image (denoising strength).
 *   **Inpainting** (`qp-inpaint`): Fill masked areas of an image.
 *   **Outpainting** (`qp-outpaint`): Extend the borders of an image.
+*   **LoRA Trainer** (`qp-lora-trainer`) **[NEW]**: Fine-tune SDXL models locally from a folder of images. Includes physical dataset preparation and real-time status feed.
 *   **LoRA Manager** (`qp-lora-manager`): Load Lightweight fine-tuned models (Characters, Styles).
 
 ### 🛠️ Utilities & FX (Post-Processing & Control)
@@ -202,8 +203,8 @@ python api/main.py
 Then open your browser at: **http://127.0.0.1:8000**
 
 ## Version History
-*   **V1.3.1**: **Model Architecture Detection**. Automatic Safetensors/GGUF sniffing with strict per-brick filtering and abbreviated UI labels (XL, FXS, K4B).
-*   **V1.2.0**: **MCP & LLM Assistant**. Integrated Model Context Protocol (MCP) for agentic control and added the multi-provider LLM Assistant with 17+ creative roles.
+*   **V1.4.1**: **Stable LoRA Trainer Refined**. Fixed `Loss: nan` issues, added physical dataset preparation (`prepared/` folder), real-time phase-based activity feed, and SDXL base model check.
+*   **V1.3.1**: **Model Architecture Detection**. Automatic Safetensors/GGUF sniffing with strict per-brick filtering and abbreviated UI labels.
 *   **V1.1.2**: **Native Clipboard Paste**. Integrated direct image pasting from clipboard into the `QpImageInput` brick.
 *   **V1.0.0**: **Prompt Helper Integration**. Added a compact, categorized keyword assistant with local persistence database, searchable chips, and direct injection into the Prompt brick. 
 *   **V0.9.9**: **FLUX.2 Klein Support**, specialized weight mapping for Alpha/SFT checkpoints, automated guidance scaling (distilled models), and Qwen2-based text encoder integration.
