@@ -26,3 +26,5 @@ wifi.example.conf
 .gemini/
 .antigravity/
 pour_gemini/
+.agents/
+_agents/

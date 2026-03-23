@@ -501,6 +501,31 @@ class ModelManager:
                              
                     lora_sd = new_sd
                     print(f"    -> Applied block mapping & tensor splitting. Total keys: {len(lora_sd)}")
+
+                elif pipe_arch == "sdxl":
+                    # For SDXL, we need to strip 'base_model.model.' or 'lora_unet.' and similar prefixes
+                    # created by PEFT or other trainers (Kohya uses 'lora_unet_').
+                    prefixes = ["base_model.model.", "lora_unet.", "lora_te1.", "lora_te2."]
+                    for pref in prefixes:
+                        if any(k.startswith(pref) for k in lora_sd.keys()):
+                            print(f"    -> Stripping LoRA key prefix: {pref}")
+                            # Special handling for Kohya style or prefixed formats
+                            if pref == "lora_unet.":
+                                lora_sd = {"unet." + k[len(pref):]: v for k, v in lora_sd.items() if k.startswith(pref)}
+                            elif pref == "lora_te1.":
+                                lora_sd = {"text_encoder." + k[len(pref):]: v for k, v in lora_sd.items() if k.startswith(pref)}
+                            elif pref == "lora_te2.":
+                                lora_sd = {"text_encoder_2." + k[len(pref):]: v for k, v in lora_sd.items() if k.startswith(pref)}
+                            elif pref == "base_model.model.":
+                                # If it's from our trainer, it's UNet. Check for UNet markers.
+                                if any(any(m in k for m in ["down_blocks", "up_blocks", "mid_block"]) for k in lora_sd.keys() if k.startswith(pref)):
+                                    lora_sd = {"unet." + k[len(pref):]: v for k, v in lora_sd.items() if k.startswith(pref)}
+                                else:
+                                    # Fallback to standard strip
+                                    lora_sd = {k[len(pref):]: v for k, v in lora_sd.items() if k.startswith(pref)}
+                            else:
+                                lora_sd = {k[len(pref):]: v for k, v in lora_sd.items() if k.startswith(pref)}
+                            break
                 
                 # IMPORTANT: Flux 2 + CPU offload often clashes with xformers
                 if pipe_arch == "flux":
