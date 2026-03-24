@@ -215,6 +215,11 @@ This document tracks architectural decisions, implemented features, and the road
 - **Framework Optimization**: Improved brick library categorization and priority-based smart insertion in `api/framework.py`.
 - **LoRA Prefix Handling**: Fixed architectural key mismatch for SDXL-trained LoRAs by implementing automated prefix stripping in `core/generator.py`.
 
+- **V1.5.1**: **Upscaler & UX Stability**.
+    - **Upscaler Model Discovery**: Fixed backend filtering in `core/generator.py` to correctly populate the model list for the Tiled Upscaler.
+    - **Prompt Persistence**: Resolved a critical UX bug in `QpPrompt` where user input was cleared upon adding new bricks to the workflow.
+    - **Improved Rendering**: Fixed `[object Object]` display in the model dropdown by correctly mapping model names in the frontend.
+
 ---
 
 ## UI Design System & Bricks Coloring
