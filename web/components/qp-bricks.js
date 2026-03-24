@@ -8,6 +8,7 @@ class QpPrompt extends HTMLElement {
         this.negativePrompt = "";
         this.hasRendered = false;
         this.lockedFields = new Set();
+        this.storedValues = null; // [WFGY-Metadata] Logic_Zone: TRANSIT | Resolution: convergent
     }
     connectedCallback() {
         this.render();
@@ -45,14 +46,18 @@ class QpPrompt extends HTMLElement {
     }
 
     async fetchConfig() {
+        if (this.negativePrompt) return; // [WFGY-Metadata] Logic_Zone: SAFE | Already have config
         try {
             const res = await fetch('/config');
             const config = await res.json();
             if (config && config.settings) {
                 this.negativePrompt = config.settings.NEGATIVE_PROMPT || "";
-                // Force re-render once data is loaded
-                this.hasRendered = false;
-                this.render();
+                // Only re-render if we don't have user input yet
+                const input = this.shadowRoot.querySelector('#prompt-input');
+                if (!input || !input.value.trim()) {
+                    this.hasRendered = false;
+                    this.render();
+                }
             }
         } catch (e) {
             console.error("[QpPrompt] Failed to fetch config", e);
@@ -271,6 +276,12 @@ class QpPrompt extends HTMLElement {
         if (closeBtn) {
             closeBtn.addEventListener('click', () => dialog.hide());
         }
+
+        // Apply any values that were set before this first render
+        if (this.storedValues) {
+            this.setValues(this.storedValues);
+            this.storedValues = null;
+        }
     }
     getValue() {
         return {
@@ -293,8 +304,15 @@ class QpPrompt extends HTMLElement {
         if (!values) return;
         const pInput = this.shadowRoot.querySelector('#prompt-input');
         const nInput = this.shadowRoot.querySelector('#negative-input');
-        if (pInput && values.prompt !== undefined && !this.lockedFields.has('prompt')) pInput.value = values.prompt;
-        if (nInput && values.negative_prompt !== undefined && !this.lockedFields.has('negative')) nInput.value = values.negative_prompt;
+        
+        if (!pInput || !nInput) {
+            // Shadow DOM not ready yet, store for later
+            this.storedValues = values;
+            return;
+        }
+
+        if (values.prompt !== undefined && !this.lockedFields.has('prompt')) pInput.value = values.prompt;
+        if (values.negative_prompt !== undefined && !this.lockedFields.has('negative')) nInput.value = values.negative_prompt;
     }
 }
 customElements.define('qp-prompt', QpPrompt);
@@ -2290,8 +2308,8 @@ class UpscalerV3 extends HTMLElement {
                 }
                 const select = this.shadowRoot.getElementById('model-select');
                 if (select) {
-                    select.innerHTML = this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('');
-                    select.value = this.selectedModel;
+                    select.innerHTML = this.models.map(m => `<sl-option value="${m.name}">${m.name}</sl-option>`).join('');
+                    select.value = this.selectedModel.name || this.selectedModel;
                 }
             }
         } catch (e) {

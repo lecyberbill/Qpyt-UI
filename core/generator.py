@@ -2189,6 +2189,7 @@ def list_models(model_type: str) -> list:
         elif model_type == 'flux' and info['arch'] == 'flux': is_compatible = True
         elif model_type == 'flux2' and info['arch'] == 'flux2': is_compatible = True
         elif model_type in ['sd3', 'sd3_5_turbo'] and info['arch'] in ['sd3', 'sd3_5']: is_compatible = True
+        elif model_type == 'upscale': is_compatible = True # Upscaler supports multiple architectures
         elif model_type == 'img2img' and info['arch'] == 'sdxl': is_compatible = True # Default img2img to sdxl
         elif info['arch'] == 'unknown': is_compatible = True # Fallback: return everything unknown to be safe
         
