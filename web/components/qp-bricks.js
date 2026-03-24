@@ -1978,7 +1978,7 @@ class QpOutpaint extends QpRender {
                 prompt,
                 negative_prompt,
                 model_type: this.modelType,
-                model_name: this.selectedModel,
+                model_name: this.selectedModel?.name || this.selectedModel,
                 image: image,
                 mask: mask,
                 width: width,
@@ -2100,6 +2100,7 @@ class QpOutpaint extends QpRender {
     }
 
     render() {
+        // [WFGY-Metadata] Logic_Zone: TRANSIT | Delta_Initial: 0.6 | Resolution: convergent
         if (this.hasRendered) {
             this.updateUI();
             return;
@@ -2175,9 +2176,9 @@ class QpOutpaint extends QpRender {
             <qp-cartridge title="${this.title}" icon="${this.icon}" type="generator" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div style="padding: 0.5rem; display: flex; flex-direction: column; gap: 1rem;">
                     
-                    <sl-select size="small" placeholder="Select Model" value="${this.selectedModel}" id="model-select" hoist>
+                    <sl-select size="small" placeholder="Select Model" value="${this.selectedModel?.name || this.selectedModel}" id="model-select" hoist>
                          ${this.models.length > 0
-                ? this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')
+                ? this.models.map(m => `<sl-option value="${m.name || m}">[${m.label || '???'}] ${m.name || m}</sl-option>`).join('')
                 : `<sl-option value="" disabled>Loading models...</sl-option>`
             }
                     </sl-select>
@@ -2298,18 +2299,19 @@ class UpscalerV3 extends HTMLElement {
     }
 
     async fetchModels() {
+        // [WFGY-Metadata] Logic_Zone: TRANSIT | Delta_Initial: 0.6 | Resolution: convergent
         try {
             const response = await fetch(`/models/${this.modelType}`);
             const result = await response.json();
             if (result.status === 'success') {
                 this.models = result.models;
                 if (this.models.length > 0 && !this.selectedModel) {
-                    this.selectedModel = this.models[0];
+                    this.selectedModel = this.models[0].name || this.models[0];
                 }
                 const select = this.shadowRoot.getElementById('model-select');
                 if (select) {
-                    select.innerHTML = this.models.map(m => `<sl-option value="${m.name}">${m.name}</sl-option>`).join('');
-                    select.value = this.selectedModel.name || this.selectedModel;
+                    select.innerHTML = this.models.map(m => `<sl-option value="${m.name || m}">[${m.label || '???'}] ${m.name || m}</sl-option>`).join('');
+                    select.value = this.selectedModel?.name || this.selectedModel;
                 }
             }
         } catch (e) {
@@ -2339,6 +2341,7 @@ class UpscalerV3 extends HTMLElement {
     }
 
     async generate() {
+        // [WFGY-Metadata] Logic_Zone: SAFE | Delta_Initial: 0.4 | Resolution: convergent
         if (!window.qpyt_app) return;
         this.isGenerating = true;
         this.render();
@@ -2361,7 +2364,7 @@ class UpscalerV3 extends HTMLElement {
             const payload = {
                 prompt, negative_prompt,
                 model_type: 'upscale',
-                model_name: this.selectedModel,
+                model_name: this.selectedModel?.name || this.selectedModel,
                 image: image,
                 upscale_factor: this.upscaleFactor,
                 denoising_strength: this.denoisingStrength,
@@ -2400,6 +2403,7 @@ class UpscalerV3 extends HTMLElement {
     }
 
     render() {
+        // [WFGY-Metadata] Logic_Zone: SAFE | Delta_Initial: 0.4 | Resolution: convergent
         const brickId = this.getAttribute('brick-id') || '';
         this.shadowRoot.innerHTML = `
             <style>
@@ -2407,8 +2411,8 @@ class UpscalerV3 extends HTMLElement {
             </style>
             <qp-cartridge title="Tiled Upscaler" icon="aspect-ratio" type="generator" brick-id="${brickId}" ${this.hasAttribute('chained') ? 'chained' : ''}>
                 <div class="upscale-container">
-                    <sl-select id="model-select" label="Upscaler Model" value="${this.selectedModel}" hoist>
-                        ${this.models.map(m => `<sl-option value="${m}">${m}</sl-option>`).join('')}
+                    <sl-select id="model-select" label="Upscaler Model" value="${this.selectedModel?.name || this.selectedModel}" hoist>
+                        ${this.models.map(m => `<sl-option value="${m.name || m}">[${m.label || '???'}] ${m.name || m}</sl-option>`).join('')}
                     </sl-select>
 
                     <sl-input type="number" label="Scale Factor" value="${this.upscaleFactor}" min="1.1" step="0.1" id="scale-input"></sl-input>
