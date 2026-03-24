@@ -71,6 +71,7 @@ class SaveToDiskRequest(BaseModel):
 
 class InpaintRequest(ImageGenerationRequest):
     mask: str = Field(..., description="Masque en Base64")
+    invert_mask: bool = Field(False, description="Inverser le masque (0->255, 255->0)")
     # Inherits prompt, model_type, width, height, etc. from ImageGenerationRequest
 
 class OutpaintRequest(InpaintRequest):

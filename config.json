@@ -24,6 +24,10 @@
     "NEGATIVE_PROMPT": "deformed, ugly, blurry, pixelated, grainy, poorly drawn, artifacts, errors, duplicates, missing, inconsistent, unrealistic, bad anatomy, severed hands, severed heads, crossed eyes, poor quality, low resolution, washed out, overexposed, underexposed, noise, flat, lacking details, generic, amateur",
     "FORMATS": [
         {
+            "dimensions": "512*1024",
+            "orientation": "Portrait"
+        },
+        {
             "dimensions": "704*1408",
             "orientation": "Portrait"
         },

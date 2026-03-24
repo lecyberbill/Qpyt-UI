@@ -53,12 +53,12 @@ class QpLibrary extends HTMLElement {
             inputs: {
                 label: "Inputs & Prompts",
                 icon: "chat-left-text",
-                ids: ["qp-image-input", "qp-prompt", "qp-prompt-helper", "qp-styles", "qp-translator", "qp-llm-prompter", "qp-llm-assistant", "qp-img2prompt", "qp-civitai", "qp-image-blender"]
+                ids: ["qp-image-input", "qp-prompt", "qp-prompt-helper", "qp-styles", "qp-translator", "qp-llm-prompter", "qp-llm-assistant", "qp-img2prompt", "qp-civitai", "qp-image-blender", "qp-narrator"]
             },
             generators: {
                 label: "Generators (AI)",
                 icon: "magic",
-                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-flux-klein", "qp-render-sd35turbo", "qp-sprite", "qp-render-zimage", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager", "qp-controlnet", "qp-video"]
+                ids: ["qp-render-sdxl", "qp-render-flux", "qp-render-flux-klein", "qp-render-sd35turbo", "qp-sprite", "qp-render-zimage", "qp-img2img", "qp-inpaint", "qp-outpaint", "qp-lora-manager", "qp-controlnet", "qp-video", "qp-grid-explore", "qp-auto-background"]
             },
             audio: {
                 label: "Generators (Audio)",

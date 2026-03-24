@@ -1,6 +1,7 @@
 import torch
 import gc
 import traceback
+from typing import List, Dict
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from core.config import config
 
@@ -31,6 +32,43 @@ class LlmPrompterManager:
                 cls._model = None
                 cls._tokenizer = None
                 raise e
+
+    @classmethod
+    def generate_chat_response(cls, messages: List[Dict[str, str]], max_new_tokens: int = 1024, temperature: float = 0.7) -> str:
+        if not messages:
+            return ""
+
+        cls.load_model()
+        
+        try:
+            text_input = cls._tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+
+            model_inputs = cls._tokenizer([text_input], return_tensors="pt").to(cls._model.device)
+
+            generated_ids = cls._model.generate(
+                **model_inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=0.9,
+                pad_token_id=cls._tokenizer.pad_token_id,
+                eos_token_id=cls._tokenizer.eos_token_id
+            )
+
+            # Extract generated text only
+            new_tokens = generated_ids[0][len(model_inputs.input_ids[0]):]
+            raw_output = cls._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+            print(f"[LLM Prompter] Chat response generated (len: {len(raw_output)})")
+            return raw_output
+
+        except Exception as e:
+            print(f"[LLM Prompter] Chat generation error: {e}")
+            traceback.print_exc()
+            return "Error: Internal model failed to generate response."
 
     @classmethod
     def enhance_prompt(cls, base_prompt: str, max_new_tokens: int = 512) -> str:

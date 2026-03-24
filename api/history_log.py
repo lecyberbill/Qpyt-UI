@@ -1,9 +1,11 @@
 import os
 import time
+import threading
 from pathlib import Path
 from datetime import datetime
 
 class HistoryLogManager:
+    _lock = threading.Lock()
     @staticmethod
     def _get_template_header(day_str):
         return f"""<!DOCTYPE html>
@@ -141,86 +143,81 @@ class HistoryLogManager:
 
     @classmethod
     def add_to_log(cls, output_dir: Path, image_name: str, metadata: dict, execution_time: float):
-        try:
-            log_file = output_dir / "index.html"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            day_str = output_dir.name
-            timestamp = datetime.now().strftime("%H:%M:%S")
+        with cls._lock:
+            try:
+                log_file = output_dir / "index.html"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                day_str = output_dir.name
+                timestamp = datetime.now().strftime("%H:%M:%S")
 
-            is_video = image_name.lower().endswith(".mp4")
-            thumb_name = f"{Path(image_name).stem}_thumb.jpg" if is_video else image_name
-            
-            media_html = ""
-            if is_video:
-                media_html = f"""
-                <div class="image-side" style="position: relative;" onclick="window.open('{image_name}', '_blank')">
-                    <img src="{thumb_name}" alt="Video Thumbnail">
-                    <div class="video-overlay">
-                        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                    </div>
-                </div>
-                """
-            else:
-                media_html = f"""
-                <div class="image-side" onclick="window.open('{image_name}', '_blank')">
-                    <img src="{image_name}" alt="Generated Image">
-                </div>
-                """
-
-            entry_html = f"""
-            <!-- ENTRY_START -->
-            <div class="entry">
-                {media_html}
-                <div class="info-side">
-                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
-                        <span>{timestamp}</span>
-                        <span>{execution_time:.1f}s</span>
-                    </div>
-                    <div class="prompt">"{metadata.get('prompt', 'No prompt')}"</div>
-                    <div class="metadata-grid">
-                        <div class="meta-item"><b>Seed:</b> {metadata.get('seed', 'N/A')}</div>
-                        <div class="meta-item"><b>Model:</b> {metadata.get('model_name', 'N/A')}</div>
-                        <div class="meta-item"><b>Steps:</b> {metadata.get('num_inference_steps', 'N/A')}</div>
-                        <div class="meta-item"><b>Guidance:</b> {metadata.get('guidance_scale', 'N/A')}</div>
-                        <div class="meta-item"><b>Resolution:</b> {metadata.get('width', '?')}x{metadata.get('height', '?')}</div>
-                        <div class="meta-item"><b>Format:</b> {image_name.split('.')[-1].upper()}</div>
-                    </div>
-                    {f'<div style="font-size: 0.8rem; color: #10b981; margin-top: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);"><b>Applied LoRAs:</b><br/>' + "<br/>".join([f"• {Path(l['path']).stem} (Weight: {l['weight']})" for l in metadata['loras'] if l.get('enabled', True)]) + '</div>' if metadata.get('loras') and any(l.get('enabled', True) for l in metadata['loras']) else ''}
-                </div>
-            </div>
-            <!-- ENTRY_END -->
-"""
-
-            if not log_file.exists():
-                # Create new log
-                with open(log_file, "w", encoding="utf-8") as f:
-                    f.write(cls._get_template_header(day_str))
-                    f.write(entry_html)
-                    f.write(cls._get_template_footer())
-            else:
-                # Append incrementally before the footer
-                with open(log_file, "r", encoding="utf-8") as f:
-                    content = f.read()
+                is_video = image_name.lower().endswith(".mp4")
+                thumb_name = f"{Path(image_name).stem}_thumb.jpg" if is_video else image_name
                 
-                # We find the insertion point just before </div>\n        </div>\n        <footer>
-                # Or simply before the markers or the footer.
-                # A safer way is to find the LAST <!-- ENTRY_END --> and insert after, 
-                # or find the <div id="log-entries"> and insert after its start for reverse chronological,
-                # but user said "incrémenter", usually means bottom.
-                
-                insertion_point = content.find('<!-- ENTRY_END -->')
-                if insertion_point != -1:
-                    # Find the LAST one
-                    last_point = content.rfind('<!-- ENTRY_END -->') + len('<!-- ENTRY_END -->')
-                    new_content = content[:last_point] + entry_html + content[last_point:]
+                media_html = ""
+                if is_video:
+                    media_html = f"""
+                    <div class="image-side" style="position: relative;" onclick="window.open('{image_name}', '_blank')">
+                        <img src="{thumb_name}" alt="Video Thumbnail">
+                        <div class="video-overlay">
+                            <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                    </div>
+                    """
                 else:
-                    # Fallback if no entry yet
-                    split_marker = '<div id="log-entries">'
-                    pos = content.find(split_marker) + len(split_marker)
-                    new_content = content[:pos] + entry_html + content[pos:]
-                
-                with open(log_file, "w", encoding="utf-8") as f:
-                    f.write(new_content)
+                    media_html = f"""
+                    <div class="image-side" onclick="window.open('{image_name}', '_blank')">
+                        <img src="{image_name}" alt="Generated Image">
+                    </div>
+                    """
 
-        except Exception as e:
-            print(f"Failed to update history log: {e}")
+                entry_html = f"""
+                <!-- ENTRY_START -->
+                <div class="entry">
+                    {media_html}
+                    <div class="info-side">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted);">
+                            <span>{timestamp}</span>
+                            <span>{execution_time:.1f}s</span>
+                        </div>
+                        <div class="prompt">"{metadata.get('prompt', 'No prompt')}"</div>
+                        <div class="metadata-grid">
+                            <div class="meta-item"><b>Seed:</b> {metadata.get('seed', 'N/A')}</div>
+                            <div class="meta-item"><b>Model:</b> {metadata.get('model_name', 'N/A')}</div>
+                            <div class="meta-item"><b>Steps:</b> {metadata.get('num_inference_steps', 'N/A')}</div>
+                            <div class="meta-item"><b>Guidance:</b> {metadata.get('guidance_scale', 'N/A')}</div>
+                            <div class="meta-item"><b>Resolution:</b> {metadata.get('width', '?')}x{metadata.get('height', '?')}</div>
+                            <div class="meta-item"><b>Format:</b> {image_name.split('.')[-1].upper()}</div>
+                        </div>
+                        {f'<div style="font-size: 0.8rem; color: #10b981; margin-top: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);"><b>Applied LoRAs:</b><br/>' + "<br/>".join([f"• {Path(l['path']).stem} (Weight: {l['weight']})" for l in metadata['loras'] if l.get('enabled', True)]) + '</div>' if metadata.get('loras') and any(l.get('enabled', True) for l in metadata['loras']) else ''}
+                    </div>
+                </div>
+                <!-- ENTRY_END -->
+    """
+
+                if not log_file.exists():
+                    # Create new log
+                    with open(log_file, "w", encoding="utf-8") as f:
+                        f.write(cls._get_template_header(day_str))
+                        f.write(entry_html)
+                        f.write(cls._get_template_footer())
+                else:
+                    # Append incrementally before the footer
+                    with open(log_file, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    
+                    insertion_point = content.find('<!-- ENTRY_END -->')
+                    if insertion_point != -1:
+                        # Find the LAST one
+                        last_point = content.rfind('<!-- ENTRY_END -->') + len('<!-- ENTRY_END -->')
+                        new_content = content[:last_point] + entry_html + content[last_point:]
+                    else:
+                        # Fallback if no entry yet
+                        split_marker = '<div id="log-entries">'
+                        pos = content.find(split_marker) + len(split_marker)
+                        new_content = content[:pos] + entry_html + content[pos:]
+                    
+                    with open(log_file, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+
+            except Exception as e:
+                print(f"Failed to update history log: {e}")

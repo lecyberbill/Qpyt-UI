@@ -3,7 +3,7 @@
 This document tracks architectural decisions, implemented features, and the roadmap for the **Qpyt-UI** project.
 
 ## TECHNICAL RECORD - Qpyt-UI
-**Current Version**: V1.4.2 (LoRA Validation Successful)
+**Current Version**: V1.5.0 (Automation & Narrator Update)
 **Goal**: Visual excellence, auditory feedback, and robust email notifications.
 - **Architecture**: Python-driven modular framework for generative AI interfaces.
 - **Engines**: 
@@ -177,6 +177,7 @@ This document tracks architectural decisions, implemented features, and the road
 - [x] **LoRA Dashboard**: Integrated LoRA selection with architectural safety checks.
 - [x] **Workflow Management**: Save/Load/Delete full brick layouts.
 - [ ] **Hot Reloading UI**: Better frontend synchronization.
+- [ ] **Sequential Automation (V1.5.0)**: Bricks for Grid Exploration, Background Swap, and Narrative Generation.
 
 ### Finalization
 - [x] **Preset System**: Library of pre-configured workflows.
@@ -206,7 +207,13 @@ This document tracks architectural decisions, implemented features, and the road
 - **V1.3.1**: **Model Architecture Detection**. Automatic Safetensors/GGUF sniffing with strict per-brick filtering and abbreviated UI labels (XL, FXS, K4B).
 - **V1.4.0**: **LoRA Trainer (SDXL)**. One-click LoRA training with auto-crop, auto-caption (Florence-2), and background Job Queue integration.
 - **V1.4.1**: **Trainer Refinements & Stability**. Improved UI with phase distinction, added automatic SDXL Base Model check, and fixed critical `Loss: nan` issues by forcing VAE to float32. Improved LoRA export compatibility.
-- **V1.4.2**: **LoRA Validation & Trigger Word Success**. Confirmed that 500 steps are sufficient for high-quality style training (Tilt-Shift). Verified successful trigger word association and dynamic loading from external storage (`G:\`).
+- **V1.4.2**: [2026-03-23] LoRA Validation (Tilt-Shift 500 steps) with trigger word verification. Added `.agents` to `.gitignore`.
+- **V1.5.0**: **Automation & Narrative**. Implementation of `QpGridExplore`, `QpAutoBackground` (Rembg+Inpaint), `QpNarrator` (LLM-driven sequences), and the **Smart Guide** dependency system.
+
+- **New Brick: QpNarrator**: Storyboard generator using LLM (Ollama/Llama3/Mistral). Generates 4 captions and prompts from a single idea with batch execution support.
+- **Smart Guide System**: Centralized dependency engine (`brick_logic.js`) with visual pulsing LED feedback and one-click "Auto-Fix" buttons in `qp-cartridge`.
+- **Framework Optimization**: Improved brick library categorization and priority-based smart insertion in `api/framework.py`.
+- **LoRA Prefix Handling**: Fixed architectural key mismatch for SDXL-trained LoRAs by implementing automated prefix stripping in `core/generator.py`.
 
 ---
 

@@ -540,6 +540,8 @@ class QpytApp {
                             console.log(`[App] Applying resonant defaults for: ${el.tagName}`);
                             el.applyDefaultSettings();
                         }
+                        // Trigger Smart Guide update
+                        window.dispatchEvent(new CustomEvent('qpyt-brick-change'));
                     }, 50);
 
                 }
@@ -567,6 +569,8 @@ class QpytApp {
                 const mergedWorkflow = currentStates.filter(b => b.id !== brickId);
                 this.mountWorkflow(mergedWorkflow);
                 this.notify("Module removed", "primary");
+                // Trigger Smart Guide update
+                window.dispatchEvent(new CustomEvent('qpyt-brick-change'));
             } else {
                 this.notify(`Error: ${result.message}`, "danger");
             }
@@ -719,6 +723,9 @@ class QpytApp {
             console.error("[Workflow] Critical error during reconciliation:", err);
             this.notify("Error rendering workflow", "danger");
         }
+        
+        // Trigger Smart Guide update after workspace reshuffle
+        window.dispatchEvent(new CustomEvent('qpyt-brick-change'));
     }
 
     setupBrickListeners(el) {

@@ -1380,6 +1380,7 @@ class ModelManager:
                  loras: Optional[list] = None,
                  controlnet_image: str = None, controlnet_conditioning_scale: float = 0.7,
                  controlnet_model: str = None, low_vram: bool = False, is_inpaint: bool = False,
+                 invert_mask: bool = False,
                  workflow: Optional[Dict[str, Any]] = None,
                  image_a: str = None, image_b: str = None, weight_a: float = 0.5,
                  weight_b: float = 0.5, ip_adapter_scale: float = 0.5):
@@ -1591,14 +1592,32 @@ class ModelManager:
         init_mask = None
         if mask:
             try:
-                init_mask = cls._load_image(mask, mode="L")
-                if init_mask is None:
+                # Load with RGBA to check for alpha channel first
+                mask_obj = cls._load_image(mask, mode="RGBA")
+                
+                if mask_obj is None:
                     raise ValueError("Failed to load or decode mask image.")
+                
+                # Check if it has an Alpha channel (Smart Background/RemBG case)
+                if "A" in mask_obj.getbands():
+                    print("[Debug] Background removal mask detected (Alpha channel). Extracting mask...")
+                    init_mask = mask_obj.split()[-1].convert("L")
+                else:
+                    # Fallback to standard grayscale conversion
+                    print("[Debug] Standard grayscale mask detected.")
+                    init_mask = mask_obj.convert("L")
+
                 # Resize mask to match target size
                 print(f"[Debug] Init mask size: {init_mask.size}, Target: ({width}, {height})")
                 if init_mask.size != (width, height):
                     init_mask = init_mask.resize((width, height), Image.LANCZOS)
                 
+                # Invert if requested (Subject to Background conversion)
+                if invert_mask:
+                    print("[Debug] Inverting mask (InvertMask=True)")
+                    from PIL import ImageOps
+                    init_mask = ImageOps.invert(init_mask)
+
                 # Debug save
                 debug_path = Path(config.OUTPUT_DIR) / "debug_mask.png"
                 init_mask.save(debug_path)

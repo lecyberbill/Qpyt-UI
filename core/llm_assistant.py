@@ -60,8 +60,10 @@ class LlmAssistantManager:
 
         raw_content = ""
         if provider == "local":
-            user_input = messages[-1]["content"] if messages else ""
-            raw_content = LlmPrompterManager.enhance_prompt(user_input)
+            raw_content = LlmPrompterManager.generate_chat_response(
+                messages=full_messages,
+                temperature=temperature
+            )
 
         elif provider == "ollama":
             url = config.get("OLLAMA_URL", "http://localhost:11434/api/chat")
@@ -170,4 +172,8 @@ class LlmAssistantManager:
         else:
             return f"Error: Unknown provider {provider}"
 
-        return cls._clean_response(raw_content)
+        cleaned = cls._clean_response(raw_content)
+        logger.info(f"[LlmAssistant] Raw len: {len(raw_content)} -> Cleaned len: {len(cleaned)}")
+        # Print a bit of the cleaned response to see if it's JSON
+        print(f"[Debug] Cleaned response start: {cleaned[:100]}...")
+        return cleaned

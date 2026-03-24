@@ -108,6 +108,8 @@ class QpCartridge extends HTMLElement {
                     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease;
                     width: ${isCollapsed ? '60px' : '350px'};
                     position: relative;
+                    /* Changed from hidden to allow guide tooltips to overflow gracefully */
+                    overflow: visible; 
                 }
 
                 .side-label {
@@ -122,6 +124,7 @@ class QpCartridge extends HTMLElement {
                     cursor: pointer;
                     user-select: none;
                     transition: background 0.3s;
+                    position: relative;
                 }
 
                 .side-label:hover {
@@ -176,6 +179,102 @@ class QpCartridge extends HTMLElement {
                     overflow-y: auto;
                 }
 
+                /* Status LED Styles - CENTERED ABOVE TRASH ICON */
+                .status-container {
+                    position: absolute;
+                    bottom: 60px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    z-index: 110;
+                }
+
+                /* Invisible bridge to stay open when moving to tooltip */
+                .status-container::before {
+                    content: '';
+                    position: absolute;
+                    bottom: 0px;
+                    left: -40px;
+                    width: 150px;
+                    height: 150px;
+                    /* border: 1px solid red; /* Debug */
+                }
+
+                .status-dot {
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 50%;
+                    background: #64748b;
+                    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                    cursor: help;
+                    transition: all 0.3s;
+                    position: relative;
+                }
+
+                .status-dot:hover { transform: scale(1.3); }
+
+                .status-ready { background: #10b981; box-shadow: 0 0 10px #10b981; }
+                .status-missing { 
+                    background: #f59e0b; 
+                    box-shadow: 0 0 10px #f59e0b; 
+                    animation: pulse-orange 1.5s infinite;
+                }
+                .status-conflict { 
+                    background: #ef4444; 
+                    box-shadow: 0 0 10px #ef4444; 
+                    animation: pulse-red 1.5s infinite;
+                }
+
+                @keyframes pulse-orange {
+                    0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+                    70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+                }
+                @keyframes pulse-red {
+                    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+                    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+                }
+
+                /* Higher z-index for the whole container during hover */
+                .status-container:hover {
+                    z-index: 300;
+                }
+
+                .status-tooltip {
+                    position: absolute;
+                    bottom: 20px; /* Positioned relative to the container */
+                    left: 40px;   /* Move it to the right, OUTSIDE the side-label to avoid clipping */
+                    width: 220px;
+                    background: #1e293b;
+                    border: 1px solid rgba(255,255,255,0.2);
+                    border-radius: 8px;
+                    padding: 12px;
+                    font-size: 0.75rem;
+                    color: #cbd5e1;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+                    opacity: 0;
+                    visibility: hidden;
+                    pointer-events: none;
+                    transition: opacity 0.2s 0.1s, visibility 0.2s 0.1s; /* Slight delay to help with mouse movement */
+                    z-index: 200;
+                }
+
+                /* Show tooltip when hovering the dot OR the tooltip itself */
+                .status-container:hover .status-tooltip {
+                    opacity: 1;
+                    visibility: visible;
+                    pointer-events: auto;
+                }
+
+                .status-tooltip ul { 
+                    margin: 8px 0 0 0; 
+                    padding: 0; 
+                    list-style: none; 
+                }
+
             </style>
 
             <div class="cartridge" id="main-cartridge" part="base">
@@ -184,6 +283,11 @@ class QpCartridge extends HTMLElement {
                     <!-- Drag Handle Icon -->
                     <sl-icon name="grip-vertical" style="font-size: 20px; color: rgba(255,255,255,0.6); margin-top: 10px;"></sl-icon>
                     
+                    <div class="status-container">
+                        <div class="status-dot"></div>
+                        <div class="status-tooltip">Checking dependencies...</div>
+                    </div>
+
                     <div class="title-wrapper">
                         <div class="title-rotated">${title}</div>
                     </div>
@@ -200,13 +304,62 @@ class QpCartridge extends HTMLElement {
         `;
 
         this.shadowRoot.getElementById('toggle-btn').addEventListener('click', (e) => {
-            if (e.target.closest('#del-btn')) return;
+            if (e.target.closest('#del-btn') || e.target.closest('.status-dot')) return;
             this.toggleCollapse();
         });
 
         const delBtn = this.shadowRoot.getElementById('del-btn');
         if (delBtn) {
             delBtn.addEventListener('click', (e) => this.handleDelete(e));
+        }
+
+        // Initialize Dependency Check
+        setTimeout(() => this.checkDependencies(), 100);
+
+        // Listen for global brick changes
+        window.addEventListener('qpyt-brick-change', () => this.checkDependencies());
+    }
+
+    checkDependencies() {
+        const parent = this.parentElement || this.getRootNode().host;
+        if (!parent) return;
+
+        const tag = parent.tagName.toLowerCase();
+        
+        if (typeof window.BrickLogic === 'undefined') return;
+
+        const dot = this.shadowRoot.querySelector('.status-dot');
+        const tooltip = this.shadowRoot.querySelector('.status-tooltip');
+        if (!dot || !tooltip) return;
+
+        try {
+            const result = window.BrickLogic.validate(tag);
+
+            // Reset
+            dot.className = 'status-dot';
+            tooltip.innerHTML = '';
+
+            if (result.status === 'ready') {
+                dot.classList.add('status-ready');
+                tooltip.innerHTML = `<strong>${result.label}</strong><br>Status: Ready & Compatible`;
+            } else if (result.status === 'missing') {
+                dot.classList.add('status-missing');
+                let html = `<strong>${result.label}</strong><br>Missing dependencies:<br><ul>`;
+                result.missing.forEach(m => {
+                    const label = window.BrickLogic.getLabel(m);
+                    html += `<li style="margin-top:5px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>${label}</span>
+                        <sl-button size="extra-small" variant="success" outline onclick="window.qpyt_app.addBrick('${m}')">Add</sl-button>
+                    </li>`;
+                });
+                html += `</ul>`;
+                tooltip.innerHTML = html;
+            } else if (result.status === 'conflict') {
+                dot.classList.add('status-conflict');
+                tooltip.innerHTML = `<strong>${result.label}</strong><br>⚠️ Conflict detected with:<br>${result.conflicts.map(c => window.BrickLogic.getLabel(c)).join(', ')}`;
+            }
+        } catch (e) {
+            console.error("[Guide] Error checking dependencies:", e);
         }
     }
 }

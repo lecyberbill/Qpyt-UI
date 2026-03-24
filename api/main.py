@@ -111,7 +111,7 @@ async def hot_reload_watcher():
                     connected_clients.remove(client)
 
 # Default Qpyt-UI configuration
-app_ui = QpytUI(title="Qpyt - UI V1.3.1 (Architecture Detection & Flux Filtering)")
+app_ui = QpytUI(title="Qpyt-UI V1.5.0 (Automation & Narrative)")
 app_ui.add_brick("qp-prompt")
 app_ui.add_brick("qp-settings")
 app_ui.add_brick("qp-render-sdxl")
@@ -684,63 +684,80 @@ async def generate(request: ImageGenerationRequest):
 
 @app.post("/inpaint")
 async def inpaint(request: InpaintRequest):
-    logger.info(f"Adding inpaint to queue ({request.model_type}): {request.prompt}")
-    queue_mgr = QueueManager.get_instance()
-    
-    task_id = await queue_mgr.add_task(
-        "inpaint",
-        task_generate_wrapper,
-        prompt=request.prompt,
-        negative_prompt=request.negative_prompt,
-        model_type=request.model_type,
-        model_name=request.model_name,
-        width=request.width,
-        height=request.height,
-        guidance_scale=request.guidance_scale,
-        num_inference_steps=request.num_inference_steps,
-        seed=request.seed,
-        vae_name=request.vae_name,
-        sampler_name=request.sampler_name,
-        image=request.image,
-        image_a=request.image_a,
-        image_b=request.image_b,
-        weight_a=request.weight_a,
-        weight_b=request.weight_b,
-        ip_adapter_scale=request.ip_adapter_scale,
-        mask=request.mask,
-        denoising_strength=request.denoising_strength,
-        output_format=request.output_format,
-        loras=request.loras,
-        is_inpaint=True,
-        workflow=request.workflow
-    )
-    
-    return {"status": "queued", "task_id": task_id}
+    try:
+        logger.info(f"Adding inpaint to queue ({request.model_type}): {request.prompt}")
+        queue_mgr = QueueManager.get_instance()
+        
+        task_id = await queue_mgr.add_task(
+            "inpaint",
+            task_generate_wrapper,
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            model_type=request.model_type,
+            model_name=request.model_name,
+            width=request.width,
+            height=request.height,
+            guidance_scale=request.guidance_scale,
+            num_inference_steps=request.num_inference_steps,
+            seed=request.seed,
+            vae_name=request.vae_name,
+            sampler_name=request.sampler_name,
+            image=request.image,
+            image_a=request.image_a,
+            image_b=request.image_b,
+            weight_a=request.weight_a,
+            weight_b=request.weight_b,
+            ip_adapter_scale=request.ip_adapter_scale,
+            mask=request.mask,
+            denoising_strength=request.denoising_strength,
+            output_format=request.output_format,
+            loras=request.loras,
+            is_inpaint=True,
+            invert_mask=request.invert_mask,
+            workflow=request.workflow
+        )
+        
+        return {"status": "queued", "task_id": task_id}
+    except Exception as e:
+        logger.error(f"Error submitting /inpaint task: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.post("/outpaint")
 async def outpaint(request: OutpaintRequest):
-    logger.info(f"Adding outpaint to queue: {request.prompt}")
-    queue_mgr = QueueManager.get_instance()
-    
-    task_id = await queue_mgr.add_task(
-        "outpaint",
-        task_generate_wrapper,
-        prompt=request.prompt,
-        negative_prompt=request.negative_prompt,
-        model_type="sdxl", # Outpaint forced to SDXL for now
-        width=request.width,
-        height=request.height,
-        guidance_scale=request.guidance_scale,
-        num_inference_steps=request.num_inference_steps,
-        seed=request.seed,
-        image=request.image,
-        mask=request.mask,
-        denoising_strength=request.denoising_strength,
-        is_inpaint=True,
-        workflow=request.workflow
-    )
-    
-    return {"status": "queued", "task_id": task_id}
+    try:
+        logger.info(f"Adding outpaint to queue: {request.prompt}")
+        queue_mgr = QueueManager.get_instance()
+        
+        task_id = await queue_mgr.add_task(
+            "outpaint",
+            task_generate_wrapper,
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            model_type=request.model_type,
+            model_name=request.model_name,
+            width=request.width,
+            height=request.height,
+            guidance_scale=request.guidance_scale,
+            num_inference_steps=request.num_inference_steps,
+            seed=request.seed,
+            vae_name=request.vae_name,
+            sampler_name=request.sampler_name,
+            image=request.image,
+            denoising_strength=request.denoising_strength,
+            output_format=request.output_format,
+            loras=request.loras,
+            is_outpaint=True,
+            workflow=request.workflow
+        )
+        
+        return {"status": "queued", "task_id": task_id}
+    except Exception as e:
+        logger.error(f"Error submitting /outpaint task: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.post("/upscale")
 async def upscale(request: UpscaleRequest):
